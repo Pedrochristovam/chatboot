@@ -1,0 +1,47 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@theme {
+    --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Fraunces', ui-serif, Georgia, serif;
+    --color-primary: #8B1E3F;
+    --color-primary-dark: #5C1529;
+    --color-primary-light: #FFFFFF;
+    --color-surface: #FFFFFF;
+    --color-sidebar: #FFFFFF;
+}
+
+[x-cloak] { display: none !important; }
+
+.font-display {
+    font-family: var(--font-display);
+}
+
+/* Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+/* Dashboard entrance */
+@keyframes dash-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.dash-reveal {
+    animation: dash-rise 0.55s ease-out both;
+}
+
+.dash-reveal-delay-1 { animation-delay: 0.06s; }
+.dash-reveal-delay-2 { animation-delay: 0.12s; }
+.dash-reveal-delay-3 { animation-delay: 0.18s; }
+.dash-reveal-delay-4 { animation-delay: 0.24s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-reveal {
+        animation: none;
+    }
+}
