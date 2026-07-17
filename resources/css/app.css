@@ -7,32 +7,56 @@
 
 @theme {
     --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
-    --font-display: 'Fraunces', ui-serif, Georgia, serif;
+    --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
     --color-primary: #8B1E3F;
     --color-primary-dark: #5C1529;
-    --color-primary-light: #FFFFFF;
+    --color-primary-light: #F8EEF1;
     --color-surface: #FFFFFF;
     --color-sidebar: #FFFFFF;
 }
 
 [x-cloak] { display: none !important; }
 
+html { color-scheme: light; }
+
+body { background: #f8fafc; }
+
 .font-display {
     font-family: var(--font-display);
 }
 
-/* Scrollbar */
-.custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::selection {
+    background: rgb(139 30 63 / 14%);
+    color: #5c1529;
+}
+
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+
+:focus-visible {
+    outline: 2px solid rgb(139 30 63 / 45%);
+    outline-offset: 2px;
+}
+
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
+.ui-panel { border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
+.ui-card { border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 
 /* Dashboard entrance */
 @keyframes dash-rise {
-    from { opacity: 0; transform: translateY(12px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
 .dash-reveal {
-    animation: dash-rise 0.55s ease-out both;
+    animation: dash-rise 0.35s ease-out both;
 }
 
 .dash-reveal-delay-1 { animation-delay: 0.06s; }

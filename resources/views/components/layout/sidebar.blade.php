@@ -1,19 +1,17 @@
 ﻿<aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-       class="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:translate-x-0">
+       class="fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-slate-200 bg-white transition-transform duration-200 lg:translate-x-0">
 
-    <div class="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
-        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#8B1E3F]">
-            <svg class="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-            </svg>
-        </div>
+    <div class="flex h-16 items-center gap-3 border-b border-slate-100 px-5">
+        <img src="{{ asset('images/mgi-logo-oficial.png') }}"
+             alt="Logo MGI"
+             class="h-9 w-12 rounded-md bg-black object-contain">
         <div>
-            <p class="font-display text-base font-semibold text-[#5C1529]">MGI chat</p>
-            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">WhatsApp CRM</p>
+            <p class="text-base font-extrabold leading-tight tracking-tight text-[#8B1E3F]">MGI Chat</p>
+            <p class="mt-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">WhatsApp CRM</p>
         </div>
     </div>
 
-    <nav class="custom-scrollbar flex-1 space-y-1 overflow-y-auto p-3">
+    <nav class="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-5">
         @php
             $links = [
                 ['route' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z'],
@@ -32,11 +30,11 @@
             @php $active = request()->routeIs($link['route'].'*'); @endphp
             <a href="{{ route($link['route']) }}"
                @click="sidebarOpen = false"
-               class="relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition
+               class="relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold transition
                       {{ $active
-                          ? 'bg-slate-50 text-[#8B1E3F] shadow-sm ring-1 ring-slate-200 before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-[#8B1E3F]'
-                          : 'text-slate-600 hover:bg-white hover:text-[#5C1529]' }}">
-                <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                          ? 'bg-[#F5EEF0] text-[#8B1E3F] before:absolute before:-left-3 before:top-1/2 before:h-7 before:w-0.5 before:-translate-y-1/2 before:rounded-r-full before:bg-[#8B1E3F]'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-[#8B1E3F]' }}">
+                <svg class="h-[18px] w-[18px] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
                     <path stroke-linecap="round" stroke-linejoin="round" d="{{ $link['icon'] }}"/>
                 </svg>
                 <span class="truncate">{{ $link['label'] }}</span>
@@ -45,16 +43,23 @@
     </nav>
 
     @auth
-    <div class="border-t border-slate-200 p-4">
-        <div class="flex items-center gap-3 rounded-2xl bg-white p-2.5 ring-1 ring-slate-200">
-            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[#8B1E3F] text-xs font-bold text-white shadow-sm">
+    <div class="border-t border-slate-100 p-3">
+        <div class="flex items-center gap-2.5 rounded-lg p-2">
+            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-extrabold text-[#8B1E3F]">
                 {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
             </div>
             <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-semibold text-slate-800">{{ auth()->user()->name }}</p>
-                <p class="truncate text-xs text-slate-400">{{ auth()->user()->role_title ?? 'Administrador' }}</p>
+                <p class="truncate text-xs font-bold text-slate-800">{{ auth()->user()->name }}</p>
+                <p class="truncate text-[10px] text-slate-400">{{ auth()->user()->role_title ?? 'Administrador' }}</p>
             </div>
         </div>
+        <form method="POST" action="{{ route('logout') }}" class="mt-1">
+            @csrf
+            <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-700">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3H9m0 0l3-3m-3 3l3 3"/></svg>
+                Sair da conta
+            </button>
+        </form>
     </div>
     @endauth
 </aside>

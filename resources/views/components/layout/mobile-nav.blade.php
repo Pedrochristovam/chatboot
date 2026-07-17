@@ -1,5 +1,5 @@
-<nav class="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 px-2 backdrop-blur-md pb-safe lg:hidden">
-    <div class="flex items-center justify-around py-2">
+<nav class="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white px-2 pb-safe lg:hidden">
+    <div class="mx-auto flex max-w-lg items-center justify-around py-1.5">
         @php
             $mobileLinks = [
                 ['route' => 'dashboard', 'label' => 'Início', 'icon' => 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z'],
@@ -13,10 +13,10 @@
         @foreach ($mobileLinks as $link)
             @php $active = request()->routeIs($link['route'].'*'); @endphp
             <a href="{{ route($link['route']) }}"
-               class="flex flex-col items-center gap-0.5 rounded-xl px-2.5 py-1 text-[10px] font-semibold transition
+               class="flex min-w-14 flex-col items-center gap-0.5 rounded-lg px-2 py-1 text-[9px] font-bold transition
                       {{ $active ? 'text-[#8B1E3F]' : 'text-slate-400' }}">
-                <span class="flex h-8 w-8 items-center justify-center rounded-xl {{ $active ? 'bg-slate-50' : '' }}">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <span class="flex h-7 w-9 items-center justify-center rounded-lg {{ $active ? 'bg-[#F5EEF0]' : '' }}">
+                    <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
                         <path stroke-linecap="round" stroke-linejoin="round" d="{{ $link['icon'] }}"/>
                     </svg>
                 </span>

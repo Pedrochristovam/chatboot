@@ -6,10 +6,10 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? config('chatflow.name') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=manrope:400,500,600,700|fraunces:600,700" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=manrope:400,500,600,700,800" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="bg-white font-sans text-slate-800 antialiased">
+<body class="bg-slate-50 font-sans text-slate-800 antialiased">
     {{ $slot }}
 </body>
 </html>
