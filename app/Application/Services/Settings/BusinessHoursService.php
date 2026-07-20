@@ -17,11 +17,59 @@ class BusinessHoursService
             return false;
         }
 
-        $start = $this->startTime();
-        $end = $this->endTime();
-        $current = $at->format('H:i');
+        [$start, $end] = $this->boundsFor($at);
 
-        return $current >= $start && $current <= $end;
+        if ($end->lessThanOrEqualTo($start)) {
+            $end->addDay();
+            if ($at->lessThan($start)) {
+                $at = $at->copy()->addDay();
+            }
+        }
+
+        return $at->betweenIncluded($start, $end);
+    }
+
+    public function nextOpen(?Carbon $at = null): Carbon
+    {
+        $cursor = ($at ?? now())->copy()->startOfMinute();
+
+        for ($i = 0; $i < 14; $i++) {
+            if (in_array((int) $cursor->dayOfWeekIso, $this->openDays(), true)) {
+                [$start, $end] = $this->boundsFor($cursor);
+                if ($cursor->lessThan($start)) {
+                    return $start;
+                }
+                if ($cursor->betweenIncluded($start, $end)) {
+                    return $cursor;
+                }
+            }
+            $cursor->addDay()->startOfDay();
+        }
+
+        return $cursor;
+    }
+
+    public function addBusinessMinutes(Carbon $from, int $minutes): Carbon
+    {
+        $remaining = max(0, $minutes);
+        $cursor = $this->nextOpen($from);
+
+        while ($remaining > 0) {
+            [$start, $end] = $this->boundsFor($cursor);
+            if ($end->lessThanOrEqualTo($start)) {
+                $end->addDay();
+            }
+
+            $available = max(0, $cursor->diffInMinutes($end, false));
+            if ($remaining <= $available) {
+                return $cursor->addMinutes($remaining);
+            }
+
+            $remaining -= $available;
+            $cursor = $this->nextOpen($end->copy()->addMinute());
+        }
+
+        return $cursor;
     }
 
     public function startTime(): string
@@ -53,5 +101,14 @@ class BusinessHoursService
             'after_hours_message',
             'Olá! Nosso horário de atendimento é de segunda a sexta, das 08:00 às 18:00. Retornaremos assim que possível.'
         );
+    }
+
+    /** @return array{Carbon, Carbon} */
+    private function boundsFor(Carbon $day): array
+    {
+        $start = $day->copy()->setTimeFromTimeString($this->startTime());
+        $end = $day->copy()->setTimeFromTimeString($this->endTime());
+
+        return [$start, $end];
     }
 }

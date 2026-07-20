@@ -62,20 +62,47 @@ class User extends Authenticatable
         return $this->hasMany(Conversation::class, 'assigned_to');
     }
 
+    /** @var array<string, bool>|null */
+    private ?array $permissionCache = null;
+
+    /** @var array<string, bool>|null */
+    private ?array $roleCache = null;
+
+    /** @var list<int>|null */
+    private ?array $departmentIdCache = null;
+
     public function hasPermission(string $slug): bool
     {
-        return $this->roles()
-            ->whereHas('permissions', fn ($query) => $query->where('slug', $slug))
-            ->exists();
+        $this->permissionCache ??= $this->roles()
+            ->with('permissions:id,slug')
+            ->get()
+            ->flatMap(fn ($role) => $role->permissions->pluck('slug'))
+            ->unique()
+            ->mapWithKeys(fn ($permission) => [(string) $permission => true])
+            ->all();
+
+        return $this->permissionCache[$slug] ?? false;
     }
 
     public function hasRole(string $slug): bool
     {
-        return $this->roles()->where('slug', $slug)->exists();
+        $this->roleCache ??= $this->roles()
+            ->pluck('slug')
+            ->mapWithKeys(fn (string $role) => [$role => true])
+            ->all();
+
+        return $this->roleCache[$slug] ?? false;
+    }
+
+    /** @return list<int> */
+    public function departmentIds(): array
+    {
+        return $this->departmentIdCache ??= $this->departments()->pluck('departments.id')->map(fn ($id) => (int) $id)->all();
     }
 
     public function isOnline(): bool
     {
-        return $this->status === AgentStatus::Online;
+        return $this->status === AgentStatus::Online
+            && $this->last_seen_at?->greaterThan(now()->subSeconds(150)) === true;
     }
 }

@@ -10,7 +10,9 @@ class UpdateClientRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $client = $this->route('client');
+
+        return $client !== null && $this->user()?->can('update', $client) === true;
     }
 
     public function rules(): array

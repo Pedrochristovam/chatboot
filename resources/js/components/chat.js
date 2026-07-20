@@ -24,6 +24,9 @@ export default () => ({
     pendingImagePreview: null,
     pendingImageName: '',
     loading: false,
+    loadingOlder: false,
+    hasMoreMessages: false,
+    nextBeforeId: null,
     conversations: [],
     messages: [],
     showEmojiPicker: false,
@@ -36,6 +39,7 @@ export default () => ({
         { id: 'waiting', label: 'Aguardando' },
         { id: 'active', label: 'Em atendimento' },
     ],
+    _inboxReloadTimer: null,
 
     get isReadOnly() {
         return this.selectedConversation?.is_read_only ?? this.selected?.is_read_only ?? false;
@@ -44,6 +48,7 @@ export default () => ({
     init() {
         this.refreshVisibleEmojis();
         this.loadConversations();
+        this.subscribeInbox();
     },
 
     refreshVisibleEmojis() {
@@ -82,13 +87,53 @@ export default () => ({
         return cat?.label || 'Emojis';
     },
 
-    async loadConversations() {
+    scheduleInboxReload() {
+        if (this._inboxReloadTimer) {
+            window.clearTimeout(this._inboxReloadTimer);
+        }
+        this._inboxReloadTimer = window.setTimeout(() => {
+            this.loadConversations({ preserveSelection: true });
+        }, 2500);
+    },
+
+    upsertConversation(card) {
+        if (!card?.id) {
+            this.scheduleInboxReload();
+            return;
+        }
+
+        const matchesFilter = this.activeFilter === 'all'
+            || card.status === this.activeFilter
+            || (this.activeFilter === 'waiting' && card.status === 'waiting')
+            || (this.activeFilter === 'active' && card.status === 'active');
+
+        if (!matchesFilter) {
+            this.conversations = this.conversations.filter((c) => c.id !== card.id);
+            if (this.selected?.id === card.id) {
+                this.selected = null;
+                this.selectedConversation = null;
+                this.messages = [];
+            }
+            return;
+        }
+
+        const idx = this.conversations.findIndex((c) => c.id === card.id);
+        if (idx >= 0) {
+            this.conversations.splice(idx, 1);
+        }
+        this.conversations.unshift(card);
+        if (this.selected?.id === card.id) {
+            this.selected = card;
+        }
+    },
+
+    async loadConversations({ preserveSelection = false } = {}) {
         try {
             const { data } = await api.get('/conversations', {
                 params: { search: this.search, status: this.activeFilter },
             });
             this.conversations = data.conversations || [];
-            if (this.conversations.length && !this.selected) {
+            if (this.conversations.length && !this.selected && !preserveSelection) {
                 await this.selectConversation(this.conversations[0]);
             } else if (this.selected) {
                 const updated = this.conversations.find((c) => c.id === this.selected.id);
@@ -116,9 +161,15 @@ export default () => ({
         this.showEmojiPicker = false;
         this.loading = true;
         this.messages = [];
+        this.hasMoreMessages = false;
+        this.nextBeforeId = null;
         try {
-            const { data } = await api.get(`/conversations/${conv.id}`);
+            const { data } = await api.get(`/conversations/${conv.id}`, {
+                params: { limit: 50 },
+            });
             this.messages = data.messages || [];
+            this.hasMoreMessages = !!data.messages_meta?.has_more;
+            this.nextBeforeId = data.messages_meta?.next_before_id || null;
             this.selectedClient = data.conversation.client;
             this.selectedConversation = data.conversation;
             this.subscribeRealtime(conv.id);
@@ -129,6 +180,32 @@ export default () => ({
         }
     },
 
+    async loadOlderMessages() {
+        if (!this.selected || !this.hasMoreMessages || this.loadingOlder || !this.nextBeforeId) return;
+        this.loadingOlder = true;
+        const scroller = this.$refs?.messageList;
+        const previousHeight = scroller?.scrollHeight || 0;
+        try {
+            const { data } = await api.get(`/conversations/${this.selected.id}`, {
+                params: { limit: 50, before_id: this.nextBeforeId },
+            });
+            const older = data.messages || [];
+            const existing = new Set(this.messages.map((m) => m.id));
+            this.messages = [...older.filter((m) => !existing.has(m.id)), ...this.messages];
+            this.hasMoreMessages = !!data.messages_meta?.has_more;
+            this.nextBeforeId = data.messages_meta?.next_before_id || null;
+            this.$nextTick(() => {
+                if (scroller) {
+                    scroller.scrollTop = scroller.scrollHeight - previousHeight;
+                }
+            });
+        } catch (e) {
+            console.error('Erro ao carregar histórico', e);
+        } finally {
+            this.loadingOlder = false;
+        }
+    },
+
     subscribeRealtime(conversationId) {
         if (!window.Echo || !conversationId) return;
         try {
@@ -136,7 +213,7 @@ export default () => ({
                 window.Echo.leave(this._echoChannel);
             }
             this._echoChannel = `conversation.${conversationId}`;
-            window.Echo.channel(this._echoChannel)
+            window.Echo.private(this._echoChannel)
                 .listen('.message.received', (payload) => {
                     if (!this.messages.find((m) => m.id === payload.id)) {
                         this.messages.push(payload);
@@ -146,9 +223,49 @@ export default () => ({
                     if (!this.messages.find((m) => m.id === payload.id)) {
                         this.messages.push(payload);
                     }
+                })
+                .listen('.message.status', (payload) => {
+                    const message = this.messages.find((m) => m.id === payload.id);
+                    if (message) {
+                        message.status = payload.status;
+                        message.error = payload.error;
+                    }
                 });
         } catch (e) {
             console.warn('Realtime indisponível', e);
+        }
+    },
+
+    subscribeInbox() {
+        if (!window.Echo) {
+            this._fallbackPoll = window.setInterval(() => this.loadConversations({ preserveSelection: true }), 15000);
+            return;
+        }
+        try {
+            window.Echo.private('inbox')
+                .listen('.message.received', (payload) => {
+                    const existing = this.conversations.find((c) => c.id === payload.conversation_id);
+                    if (existing) {
+                        existing.preview = payload.image_url ? '📷 Imagem' : (payload.text || existing.preview);
+                        existing.time = payload.time || existing.time;
+                        if (this.selected?.id !== existing.id) {
+                            existing.unread = (existing.unread || 0) + 1;
+                        }
+                        this.conversations = [existing, ...this.conversations.filter((c) => c.id !== existing.id)];
+                    } else {
+                        this.scheduleInboxReload();
+                    }
+                })
+                .listen('.conversation.updated', (payload) => {
+                    if (payload.conversation) {
+                        this.upsertConversation(payload.conversation);
+                    } else {
+                        this.scheduleInboxReload();
+                    }
+                });
+        } catch (e) {
+            console.warn('Inbox em tempo real indisponível', e);
+            this._fallbackPoll = window.setInterval(() => this.loadConversations({ preserveSelection: true }), 15000);
         }
     },
 
@@ -245,7 +362,7 @@ export default () => ({
         });
         if (!result?.isConfirmed) return;
         await api.post(`/conversations/${this.selected.id}/close`);
-        await this.loadConversations();
+        await this.loadConversations({ preserveSelection: true });
         this.selected = null;
         this.selectedConversation = null;
         this.messages = [];

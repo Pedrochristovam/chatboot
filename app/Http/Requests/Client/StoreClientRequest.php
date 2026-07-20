@@ -5,12 +5,13 @@ namespace App\Http\Requests\Client;
 use Domain\Shared\Enums\ClientStatus;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Infrastructure\Persistence\Eloquent\Models\Client;
 
 class StoreClientRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->can('create', Client::class) === true;
     }
 
     public function rules(): array

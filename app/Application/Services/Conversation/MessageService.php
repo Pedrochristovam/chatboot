@@ -3,6 +3,7 @@
 namespace Application\Services\Conversation;
 
 use App\Events\MessageSent;
+use App\Events\ConversationUpdated;
 use App\Jobs\SendWhatsAppMessageJob;
 use Application\DTOs\WhatsApp\IncomingMessageDTO;
 use Application\Services\Bot\BotService;
@@ -13,6 +14,7 @@ use Domain\Shared\Enums\MessageSenderType;
 use Domain\Shared\Enums\MessageStatus;
 use Domain\Shared\Enums\MessageType;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Infrastructure\Persistence\Eloquent\Models\Client;
 use Infrastructure\Persistence\Eloquent\Models\Conversation;
 use Infrastructure\Persistence\Eloquent\Models\Message;
@@ -21,30 +23,32 @@ class MessageService
 {
     public function __construct(
         private readonly ConversationService $conversationService,
+        private readonly ConversationWorkflowService $workflow,
         private readonly BotService $botService,
         private readonly WhatsAppMediaService $mediaService,
+        private readonly SlaService $sla,
     ) {}
 
     public function sendFromAgent(Conversation $conversation, int $agentId, string $content): Message
     {
-        if ($conversation->status->isReadOnlyForAgents()) {
-            throw new \RuntimeException('Esta conversa está sob atendimento do bot e não permite envio de mensagens.');
-        }
+        $messageId = DB::transaction(function () use ($conversation, $agentId, $content) {
+            $locked = $this->lockForAgentSend($conversation, $agentId);
+            $message = Message::query()->create([
+                'conversation_id' => $locked->id,
+                'sender_type' => MessageSenderType::Agent,
+                'sender_id' => $agentId,
+                'type' => MessageType::Text,
+                'content' => $this->resolveQuickReply($content),
+                'status' => MessageStatus::Pending,
+            ]);
+            $this->touchConversationAfterAgentSend($locked, $agentId);
+            SendWhatsAppMessageJob::dispatch($message->id)->afterCommit();
+            DB::afterCommit(fn () => event(new ConversationUpdated($locked->id, 'message_sent')));
 
-        $message = Message::query()->create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => MessageSenderType::Agent,
-            'sender_id' => $agentId,
-            'type' => MessageType::Text,
-            'content' => $this->resolveQuickReply($content),
-            'status' => MessageStatus::Pending,
-        ]);
+            return $message->id;
+        }, 3);
 
-        $this->touchConversationAfterAgentSend($conversation, $agentId);
-
-        SendWhatsAppMessageJob::dispatch($message->id);
-
-        $message = $message->fresh(['attachments']);
+        $message = Message::query()->with('attachments')->findOrFail($messageId);
         event(new MessageSent($message));
 
         return $message;
@@ -56,27 +60,26 @@ class MessageService
         UploadedFile $file,
         ?string $caption = null,
     ): Message {
-        if ($conversation->status->isReadOnlyForAgents()) {
-            throw new \RuntimeException('Esta conversa está sob atendimento do bot e não permite envio de mensagens.');
-        }
-
         $caption = filled($caption) ? trim($caption) : null;
+        $messageId = DB::transaction(function () use ($conversation, $agentId, $file, $caption) {
+            $locked = $this->lockForAgentSend($conversation, $agentId);
+            $message = Message::query()->create([
+                'conversation_id' => $locked->id,
+                'sender_type' => MessageSenderType::Agent,
+                'sender_id' => $agentId,
+                'type' => MessageType::Image,
+                'content' => $caption ?: '[imagem]',
+                'status' => MessageStatus::Pending,
+            ]);
+            $this->mediaService->attachUploadedImage($message, $file);
+            $this->touchConversationAfterAgentSend($locked, $agentId);
+            SendWhatsAppMessageJob::dispatch($message->id)->afterCommit();
+            DB::afterCommit(fn () => event(new ConversationUpdated($locked->id, 'message_sent')));
 
-        $message = Message::query()->create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => MessageSenderType::Agent,
-            'sender_id' => $agentId,
-            'type' => MessageType::Image,
-            'content' => $caption ?: '[imagem]',
-            'status' => MessageStatus::Pending,
-        ]);
+            return $message->id;
+        }, 3);
 
-        $this->mediaService->attachUploadedImage($message, $file);
-        $this->touchConversationAfterAgentSend($conversation, $agentId);
-
-        SendWhatsAppMessageJob::dispatch($message->id);
-
-        $message = $message->fresh(['attachments']);
+        $message = Message::query()->with('attachments')->findOrFail($messageId);
         event(new MessageSent($message));
 
         return $message;
@@ -91,18 +94,42 @@ class MessageService
             }
         }
 
-        $contactName = $dto->metadata['contact_name'] ?? $dto->metadata['pushName'] ?? null;
+        return DB::transaction(function () use ($dto) {
+            $contactName = $dto->metadata['contact_name'] ?? $dto->metadata['pushName'] ?? null;
+            $normalizedPhone = preg_replace('/\D+/', '', $dto->from) ?: $dto->from;
 
-        $client = Client::query()->firstOrCreate(
-            ['phone' => $dto->from],
-            [
-                'name' => $contactName ?? $dto->from,
-                'whatsapp_name' => $contactName,
-                'status' => ClientStatus::Active,
-                'source' => 'whatsapp',
-                'phone_normalized' => preg_replace('/\D+/', '', $dto->from) ?: null,
-            ]
-        );
+            $identity = DB::table('client_phone_identities')
+                ->where('normalized_phone', $normalizedPhone)
+                ->lockForUpdate()
+                ->first();
+
+            $client = $identity
+                ? Client::withTrashed()->find($identity->canonical_client_id)
+                : Client::query()
+                    ->where('phone_normalized', $normalizedPhone)
+                    ->orWhere('phone', $dto->from)
+                    ->lockForUpdate()
+                    ->first();
+
+            if (! $client) {
+                $client = Client::query()->create([
+                    'phone' => $dto->from,
+                    'name' => $contactName ?? $dto->from,
+                    'whatsapp_name' => $contactName,
+                    'status' => ClientStatus::Active,
+                    'source' => 'whatsapp',
+                    'phone_normalized' => $normalizedPhone,
+                ]);
+            } elseif ($client->trashed()) {
+                $client->restore();
+            }
+
+            DB::table('client_phone_identities')->insertOrIgnore([
+                'normalized_phone' => $normalizedPhone,
+                'canonical_client_id' => $client->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
         if ($contactName) {
             $updates = [];
@@ -162,7 +189,8 @@ class MessageService
             }
         }
 
-        return $message->fresh(['attachments']);
+            return $message->fresh(['attachments']);
+        }, 3);
     }
 
     /** @deprecated Use processIncoming() */
@@ -180,14 +208,53 @@ class MessageService
             ->update(['read_at' => now()]);
     }
 
-    public function messagesForConversation(Conversation $conversation): array
+    public function messagesForConversation(Conversation $conversation, ?int $beforeId = null, int $limit = 50): array
     {
-        return $conversation->messages()
+        $limit = max(10, min(100, $limit));
+
+        $query = $conversation->messages()
             ->with('attachments')
-            ->orderBy('created_at')
-            ->get()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if ($beforeId) {
+            $query->where('id', '<', $beforeId);
+        }
+
+        $messages = $query->limit($limit + 1)->get();
+        $hasMore = $messages->count() > $limit;
+        if ($hasMore) {
+            $messages = $messages->take($limit);
+        }
+
+        $serialized = $messages
+            ->sortBy([
+                ['created_at', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values()
             ->map(fn (Message $m) => $this->serializeMessage($m))
             ->all();
+
+        return [
+            'messages' => $serialized,
+            'has_more' => $hasMore,
+            'next_before_id' => $hasMore ? $messages->min('id') : null,
+        ];
+    }
+
+    public function messageCounts(Conversation $conversation): array
+    {
+        $counts = $conversation->messages()
+            ->selectRaw('sender_type, COUNT(*) as total')
+            ->groupBy('sender_type')
+            ->pluck('total', 'sender_type');
+
+        return [
+            'client_messages' => (int) ($counts[MessageSenderType::Client->value] ?? 0),
+            'bot_messages' => (int) ($counts[MessageSenderType::Bot->value] ?? 0),
+            'agent_messages' => (int) ($counts[MessageSenderType::Agent->value] ?? 0),
+        ];
     }
 
     public function serializeMessage(Message $message): array
@@ -225,8 +292,23 @@ class MessageService
             'first_response_at' => $conversation->first_response_at ?? now(),
             'is_bot_handled' => false,
         ]);
+        $this->sla->clear($conversation);
 
         $conversation->client->update(['last_contact_at' => now()]);
+    }
+
+    private function lockForAgentSend(Conversation $conversation, int $agentId): Conversation
+    {
+        $locked = $this->workflow->lock($conversation);
+
+        if ($locked->status->isReadOnlyForAgents()) {
+            throw new \RuntimeException('Esta conversa está sob atendimento do bot e não permite envio de mensagens.');
+        }
+        if ($locked->assigned_to !== null && (int) $locked->assigned_to !== $agentId) {
+            throw new \RuntimeException('Esta conversa já foi assumida por outro atendente.');
+        }
+
+        return $locked;
     }
 
     private function resolveQuickReply(string $content): string

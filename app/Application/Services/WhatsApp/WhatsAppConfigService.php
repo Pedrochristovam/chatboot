@@ -8,7 +8,7 @@ class WhatsAppConfigService
 {
     public function driver(): string
     {
-        return (string) Setting::getValue('whatsapp', 'driver', config('whatsapp.default', 'null'));
+        return (string) (Setting::getValue('whatsapp', 'driver', config('whatsapp.default')) ?: 'null');
     }
 
     public function metaToken(): ?string
@@ -29,6 +29,12 @@ class WhatsAppConfigService
             ?: config('whatsapp.drivers.meta.webhook_verify_token');
     }
 
+    public function metaAppSecret(): ?string
+    {
+        return Setting::getValue('whatsapp', 'meta_app_secret')
+            ?: config('whatsapp.drivers.meta.app_secret');
+    }
+
     public function webhookCallbackUrl(): string
     {
         return rtrim(config('app.url'), '/').'/api/webhook/whatsapp';
@@ -38,7 +44,8 @@ class WhatsAppConfigService
     {
         return $this->driver() === 'meta'
             && filled($this->metaToken())
-            && filled($this->metaPhoneNumberId());
+            && filled($this->metaPhoneNumberId())
+            && filled($this->metaAppSecret());
     }
 
     public function status(): array

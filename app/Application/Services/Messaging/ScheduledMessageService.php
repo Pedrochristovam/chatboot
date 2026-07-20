@@ -81,12 +81,10 @@ class ScheduledMessageService
             $locked->update([
                 'conversation_id' => $conversationId,
                 'message_id' => $message->id,
-                'status' => ScheduledMessageStatus::Sent,
-                'sent_at' => now(),
                 'error_message' => null,
             ]);
 
-            SendWhatsAppMessageJob::dispatch($message->id);
+            SendWhatsAppMessageJob::dispatch($message->id)->afterCommit();
 
             return true;
         });

@@ -4,6 +4,9 @@ use App\Http\Controllers\Api\AgentApiController;
 use App\Http\Controllers\Api\BotKnowledgeApiController;
 use App\Http\Controllers\Api\ClientApiController;
 use App\Http\Controllers\Api\ConversationApiController;
+use App\Http\Controllers\Api\FailedMessageApiController;
+use App\Http\Controllers\Api\HealthApiController;
+use App\Http\Controllers\Api\PresenceApiController;
 use App\Http\Controllers\Api\SettingsApiController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Http\Request;
@@ -16,10 +19,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user());
 });
 
-Route::middleware('web', 'auth')->prefix('internal')->group(function () {
+Route::middleware(['web', 'auth', 'throttle:120,1'])->prefix('internal')->group(function () {
+    Route::post('presence/heartbeat', [PresenceApiController::class, 'heartbeat'])->name('api.presence.heartbeat');
+    Route::post('presence/offline', [PresenceApiController::class, 'offline'])->name('api.presence.offline');
+    Route::get('health', HealthApiController::class)->middleware('permission:audit.view')->name('api.health');
+    Route::post('messages/{message}/retry', [FailedMessageApiController::class, 'retry'])
+        ->middleware('permission:audit.view')
+        ->name('api.messages.retry');
     Route::apiResource('clients', ClientApiController::class)->names('api.clients');
     Route::get('conversations', [ConversationApiController::class, 'index']);
     Route::get('conversations/{conversation}', [ConversationApiController::class, 'show']);
+    Route::get('conversations/{conversation}/card', [ConversationApiController::class, 'card']);
     Route::post('conversations/{conversation}/messages', [ConversationApiController::class, 'sendMessage']);
     Route::post('conversations/{conversation}/close', [ConversationApiController::class, 'close']);
     Route::post('conversations/{conversation}/assign', [ConversationApiController::class, 'assign']);

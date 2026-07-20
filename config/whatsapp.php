@@ -9,6 +9,7 @@ return [
             'token' => env('WHATSAPP_META_TOKEN'),
             'phone_number_id' => env('WHATSAPP_META_PHONE_NUMBER_ID'),
             'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+            'app_secret' => env('WHATSAPP_META_APP_SECRET'),
         ],
         'evolution' => [
             'base_url' => env('WHATSAPP_EVOLUTION_URL'),

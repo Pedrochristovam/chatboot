@@ -6,7 +6,7 @@
                     <div class="mb-5 flex items-center gap-3">
                         <img src="{{ asset('images/mgi-logo-oficial.png') }}"
                              alt="Logo MGI"
-                             class="h-10 w-14 rounded-md bg-black object-contain">
+                             class="h-10 w-14 rounded-md bg-white object-contain">
                         <div>
                             <p class="text-lg font-extrabold tracking-tight text-[#8B1E3F]">MGI Chat</p>
                             <p class="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">WhatsApp CRM</p>
@@ -52,12 +52,12 @@
             </div>
         </section>
 
-        <section class="order-1 flex min-h-56 items-center justify-center overflow-hidden bg-black px-6 py-10 lg:order-2 lg:min-h-screen lg:px-12">
+        <section class="order-1 flex min-h-56 items-center justify-center overflow-hidden border-b border-slate-200 bg-white px-6 py-10 lg:order-2 lg:min-h-screen lg:border-b-0 lg:border-l lg:border-slate-200 lg:px-12">
             <div class="w-full max-w-2xl text-center">
                 <img src="{{ asset('images/mgi-logo-oficial.png') }}" alt="MGI — Minas Gerais Participações S.A."
                      class="mx-auto w-full max-w-xl object-contain" fetchpriority="high">
                 <div class="mx-auto mt-7 h-px w-16 bg-[#8B1E3F]"></div>
-                <p class="mt-5 text-[10px] font-bold uppercase tracking-[0.24em] text-white/55">Atendimento inteligente pelo WhatsApp</p>
+                <p class="mt-5 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400">Atendimento inteligente pelo WhatsApp</p>
             </div>
         </section>
     </main>

@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -19,8 +19,8 @@ class MessageReceived implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new Channel('conversation.'.$this->message->conversation_id),
-            new Channel('inbox'),
+            new PrivateChannel('conversation.'.$this->message->conversation_id),
+            new PrivateChannel('inbox'),
         ];
     }
 

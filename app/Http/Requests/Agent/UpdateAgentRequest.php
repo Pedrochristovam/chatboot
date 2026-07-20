@@ -9,7 +9,9 @@ class UpdateAgentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $agent = $this->route('user');
+
+        return $agent !== null && $this->user()?->can('update', $agent) === true;
     }
 
     public function rules(): array

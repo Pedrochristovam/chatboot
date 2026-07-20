@@ -7,6 +7,7 @@ use App\Http\Requests\Agent\StoreAgentRequest;
 use App\Http\Requests\Agent\UpdateAgentRequest;
 use Application\Services\Agent\AgentService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Gate;
 use Infrastructure\Persistence\Eloquent\Models\User;
 
 class AgentApiController extends Controller
@@ -29,10 +30,15 @@ class AgentApiController extends Controller
 
     public function destroy(User $user): JsonResponse
     {
+        Gate::authorize('delete', $user);
+
         try {
             $this->agentService->delete($user);
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'agent_delete_failed', 'type' => 'domain'],
+            ], 422);
         }
 
         return response()->json(['message' => 'Atendente removido.']);

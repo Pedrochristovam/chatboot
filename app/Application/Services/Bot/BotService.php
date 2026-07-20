@@ -3,12 +3,14 @@
 namespace Application\Services\Bot;
 
 use App\Jobs\SendWhatsAppMessageJob;
+use Application\Services\Conversation\ConversationWorkflowService;
 use Application\Services\Settings\BusinessHoursService;
 use Application\Services\Settings\FeatureFlagService;
 use Domain\Shared\Enums\ConversationStatus;
 use Domain\Shared\Enums\MessageSenderType;
 use Domain\Shared\Enums\MessageStatus;
 use Domain\Shared\Enums\MessageType;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Infrastructure\Persistence\Eloquent\Models\BotKnowledge;
 use Infrastructure\Persistence\Eloquent\Models\BotTopic;
@@ -22,6 +24,8 @@ class BotService
     public function __construct(
         private readonly BusinessHoursService $businessHours,
         private readonly FeatureFlagService $features,
+        private readonly ConversationWorkflowService $workflow,
+        private readonly \Application\Services\Conversation\SlaService $sla,
     ) {}
 
     public function isEnabled(): bool
@@ -31,14 +35,27 @@ class BotService
 
     public function startConversation(Conversation $conversation): void
     {
+        $conversation->refresh();
+        if ($conversation->status !== ConversationStatus::BotActive
+            || ! $conversation->is_bot_handled
+            || $conversation->assigned_to !== null
+        ) {
+            return;
+        }
+
         if ($this->features->isEnabled('business_hours_bot', true) && ! $this->businessHours->isOpen()) {
             $this->setBotMeta($conversation, [
                 'step' => 'after_hours',
                 'topic_id' => null,
                 'name_collected' => false,
             ]);
-            $this->sendBotMessage($conversation, $this->businessHours->afterHoursMessage());
             $this->escalateToHuman($conversation, sendTransferMessage: false);
+            $this->sendBotMessage(
+                $conversation,
+                $this->businessHours->afterHoursMessage(),
+                expectedStatus: ConversationStatus::Waiting,
+                expectsBotHandled: false,
+            );
 
             return;
         }
@@ -83,7 +100,8 @@ class BotService
             return;
         }
 
-        if ($conversation->status !== ConversationStatus::BotActive) {
+        $conversation->refresh();
+        if ($conversation->status !== ConversationStatus::BotActive || ! $conversation->is_bot_handled) {
             return;
         }
 
@@ -370,68 +388,119 @@ class BotService
         return Str::title($cleaned);
     }
 
-    public function sendBotMessage(Conversation $conversation, string $content, ?array $interactive = null): Message
+    public function sendBotMessage(
+        Conversation $conversation,
+        string $content,
+        ?array $interactive = null,
+        ?ConversationStatus $expectedStatus = null,
+        ?bool $expectsBotHandled = null,
+    ): Message
     {
-        $metadata = ['bot_name' => config('bot.name')];
-        if ($interactive) {
-            $metadata['interactive'] = $interactive;
-        }
+        return DB::transaction(function () use (
+            $conversation,
+            $content,
+            $interactive,
+            $expectedStatus,
+            $expectsBotHandled,
+        ) {
+            $locked = $this->workflow->lock($conversation);
+            $expectedStatus ??= ConversationStatus::BotActive;
+            $expectsBotHandled ??= $expectedStatus !== ConversationStatus::Waiting;
 
-        $message = Message::query()->create([
-            'conversation_id' => $conversation->id,
-            'sender_type' => MessageSenderType::Bot,
-            'sender_id' => null,
-            'type' => MessageType::Text,
-            'content' => $content,
-            'status' => MessageStatus::Pending,
-            'metadata' => $metadata,
-        ]);
+            if ($locked->status !== $expectedStatus
+                || $locked->is_bot_handled !== $expectsBotHandled
+                || $locked->assigned_to !== null
+            ) {
+                throw new \RuntimeException('O bot não possui mais esta conversa; envio cancelado.');
+            }
 
-        $conversation->update(['last_message_at' => now()]);
+            $metadata = [
+                'bot_name' => config('bot.name'),
+                'bot_delivery_guard' => [
+                    'conversation_id' => $locked->id,
+                    'expected_status' => $expectedStatus->value,
+                    'expects_bot_handled' => $expectsBotHandled,
+                    'cancelled' => false,
+                ],
+            ];
+            if ($interactive) {
+                $metadata['interactive'] = $interactive;
+            }
 
-        SendWhatsAppMessageJob::dispatch($message->id);
+            $message = Message::query()->create([
+                'conversation_id' => $locked->id,
+                'sender_type' => MessageSenderType::Bot,
+                'sender_id' => null,
+                'type' => MessageType::Text,
+                'content' => $content,
+                'status' => MessageStatus::Pending,
+                'metadata' => $metadata,
+            ]);
 
-        return $message;
+            $locked->update(['last_message_at' => now()]);
+            $messageId = $message->id;
+
+            SendWhatsAppMessageJob::dispatch($messageId)->afterCommit();
+
+            return $message;
+        }, 3);
     }
 
     public function escalateToHuman(Conversation $conversation, bool $sendTransferMessage = true): void
     {
-        if (in_array($conversation->status, [ConversationStatus::Waiting, ConversationStatus::InProgress], true)) {
-            return;
-        }
+        $changed = DB::transaction(function () use ($conversation) {
+            $locked = $this->workflow->lock($conversation);
+            if (in_array($locked->status, [ConversationStatus::Waiting, ConversationStatus::InProgress], true)) {
+                return false;
+            }
 
-        $conversation->update([
-            'status' => ConversationStatus::Waiting,
-            'is_bot_handled' => false,
-            'transferred_to_human_at' => now(),
-            'waiting_since' => now(),
-            'sla_due_at' => now()->addMinutes(15),
-            'unread_count' => $conversation->unread_count + 1,
-            'metadata' => array_merge($conversation->metadata ?? [], [
-                'bot' => array_merge($this->botMeta($conversation), ['step' => 'transferred']),
-            ]),
-        ]);
+            $this->workflow->transitionLocked($locked, ConversationStatus::Waiting, [
+                'assigned_to' => null,
+                'is_bot_handled' => false,
+                'transferred_to_human_at' => now(),
+                'waiting_since' => now(),
+                'sla_due_at' => $this->sla->dueAt(),
+                'unread_count' => $locked->unread_count + 1,
+                'metadata' => array_merge($locked->metadata ?? [], [
+                    'bot' => array_merge($this->botMeta($locked), ['step' => 'transferred']),
+                ]),
+            ]);
 
-        if ($sendTransferMessage) {
+            return true;
+        }, 3);
+
+        if ($changed && $sendTransferMessage) {
             $transferMsg = Setting::getValue('notifications', 'bot_transfer_message', config('bot.transfer_message'));
-            $this->sendBotMessage($conversation, $transferMsg);
+            $this->sendBotMessage(
+                $conversation,
+                $transferMsg,
+                expectedStatus: ConversationStatus::Waiting,
+                expectsBotHandled: false,
+            );
         }
     }
 
     public function closeByBot(Conversation $conversation): void
     {
         $closedMsg = Setting::getValue('notifications', 'bot_closed_message', config('bot.closed_message'));
-        $this->sendBotMessage($conversation, $closedMsg);
+        DB::transaction(function () use ($conversation) {
+            $locked = $this->workflow->lock($conversation);
+            $this->workflow->transitionLocked($locked, ConversationStatus::BotClosed, [
+                'is_bot_handled' => true,
+                'bot_closed_at' => now(),
+                'resolved_at' => now(),
+                'metadata' => array_merge($locked->metadata ?? [], [
+                    'bot' => array_merge($this->botMeta($locked), ['step' => 'closed']),
+                ]),
+            ]);
+        }, 3);
 
-        $conversation->update([
-            'status' => ConversationStatus::BotClosed,
-            'is_bot_handled' => true,
-            'bot_closed_at' => now(),
-            'resolved_at' => now(),
-            'metadata' => array_merge($conversation->metadata ?? [], [
-                'bot' => array_merge($this->botMeta($conversation), ['step' => 'closed']),
-            ]),
-        ]);
+        $this->sendBotMessage(
+            $conversation,
+            $closedMsg,
+            expectedStatus: ConversationStatus::BotClosed,
+            expectsBotHandled: true,
+        );
     }
 
     /** @deprecated Use startConversation */
@@ -484,9 +553,20 @@ class BotService
 
     private function setBotMeta(Conversation $conversation, array $bot): void
     {
-        $metadata = $conversation->metadata ?? [];
-        $metadata['bot'] = array_merge($metadata['bot'] ?? [], $bot);
-        $conversation->update(['metadata' => $metadata]);
+        DB::transaction(function () use ($conversation, $bot) {
+            $locked = $this->workflow->lock($conversation);
+            if ($locked->status !== ConversationStatus::BotActive
+                || ! $locked->is_bot_handled
+                || $locked->assigned_to !== null
+            ) {
+                throw new \RuntimeException('O bot não possui mais esta conversa.');
+            }
+
+            $metadata = $locked->metadata ?? [];
+            $metadata['bot'] = array_merge($metadata['bot'] ?? [], $bot);
+            $locked->update(['metadata' => $metadata]);
+        }, 3);
+
         $conversation->refresh();
     }
 

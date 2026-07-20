@@ -6,6 +6,8 @@ use Application\DTOs\WhatsApp\IncomingMessageDTO;
 use Application\DTOs\WhatsApp\OutgoingMessageDTO;
 use Application\DTOs\WhatsApp\SendResultDTO;
 use Application\Services\WhatsApp\WhatsAppConfigService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -77,8 +79,17 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
             $payload['text'] = ['body' => $message->content ?? ''];
         }
 
-        $response = Http::withToken($token)
-            ->post("https://graph.facebook.com/v21.0/{$phoneNumberId}/messages", $payload);
+        try {
+            $response = Http::withToken($token)
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post("https://graph.facebook.com/v21.0/{$phoneNumberId}/messages", $payload);
+        } catch (ConnectionException $exception) {
+            throw new TransientProviderException(
+                'Não foi possível conectar à API da Meta.',
+                previous: $exception,
+            );
+        }
 
         if ($response->successful()) {
             $id = $response->json('messages.0.id') ?? Str::uuid()->toString();
@@ -86,14 +97,25 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
             return new SendResultDTO(success: true, messageId: $id);
         }
 
+        $this->throwIfTransient($response);
+
         if (isset($payload['interactive'])) {
-            $fallback = Http::withToken($token)
-                ->post("https://graph.facebook.com/v21.0/{$phoneNumberId}/messages", [
-                    'messaging_product' => 'whatsapp',
-                    'to' => $to,
-                    'type' => 'text',
-                    'text' => ['body' => $message->content ?? ''],
-                ]);
+            try {
+                $fallback = Http::withToken($token)
+                    ->connectTimeout(10)
+                    ->timeout(30)
+                    ->post("https://graph.facebook.com/v21.0/{$phoneNumberId}/messages", [
+                        'messaging_product' => 'whatsapp',
+                        'to' => $to,
+                        'type' => 'text',
+                        'text' => ['body' => $message->content ?? ''],
+                    ]);
+            } catch (ConnectionException $exception) {
+                throw new TransientProviderException(
+                    'Não foi possível conectar à API da Meta.',
+                    previous: $exception,
+                );
+            }
 
             if ($fallback->successful()) {
                 return new SendResultDTO(
@@ -101,6 +123,8 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
                     messageId: $fallback->json('messages.0.id') ?? Str::uuid()->toString(),
                 );
             }
+
+            $this->throwIfTransient($fallback);
         }
 
         return new SendResultDTO(
@@ -179,21 +203,47 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
     public function receiveWebhook(array $payload): IncomingMessageDTO
     {
         if (isset($payload['entry'])) {
-            return $this->parseMetaPayload($payload);
+            return $this->parseWebhook($payload)['messages'][0]
+                ?? new IncomingMessageDTO(from: '', messageId: '', type: 'text', content: null);
         }
 
         return $this->normalizeIncoming($payload);
     }
 
-    private function parseMetaPayload(array $payload): IncomingMessageDTO
+    /**
+     * @return array{
+     *     messages: list<IncomingMessageDTO>,
+     *     statuses: list<array<string, mixed>>
+     * }
+     */
+    public function parseWebhook(array $payload): array
     {
-        $value = $payload['entry'][0]['changes'][0]['value'] ?? [];
-        $message = $value['messages'][0] ?? null;
+        $messages = [];
+        $statuses = [];
 
-        if (! $message) {
-            return new IncomingMessageDTO(from: '', messageId: '', type: 'text', content: null);
+        foreach ($payload['entry'] ?? [] as $entry) {
+            foreach ($entry['changes'] ?? [] as $change) {
+                $value = $change['value'] ?? [];
+
+                foreach ($value['messages'] ?? [] as $message) {
+                    if (is_array($message)) {
+                        $messages[] = $this->parseMetaMessage($value, $message);
+                    }
+                }
+
+                foreach ($value['statuses'] ?? [] as $status) {
+                    if (is_array($status)) {
+                        $statuses[] = $status;
+                    }
+                }
+            }
         }
 
+        return ['messages' => $messages, 'statuses' => $statuses];
+    }
+
+    private function parseMetaMessage(array $value, array $message): IncomingMessageDTO
+    {
         $type = $message['type'] ?? 'text';
         $interactiveId = $message['interactive']['button_reply']['id']
             ?? $message['interactive']['list_reply']['id']
@@ -255,5 +305,20 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
                 'interactive_title' => $interactiveTitle,
             ],
         );
+    }
+
+    private function throwIfTransient(Response $response): void
+    {
+        $errorCode = (int) ($response->json('error.code') ?? 0);
+        $isTransient = (bool) ($response->json('error.is_transient') ?? false);
+
+        if ($response->status() === 429
+            || $response->serverError()
+            || $isTransient
+            || in_array($errorCode, [1, 2, 4, 17, 32, 341, 613], true)) {
+            throw new TransientProviderException(
+                $response->json('error.message') ?: 'Falha temporária na API da Meta.'
+            );
+        }
     }
 }

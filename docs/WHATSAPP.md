@@ -39,5 +39,6 @@ ngrok http 8888
 
 ## Segurança
 - Guarde o token só no `.env` / settings criptografados  
+- Configure `WHATSAPP_META_APP_SECRET` para validar `X-Hub-Signature-256`
 - Use HTTPS em produção  
 - Mantenha `queue:work` sempre ativo  

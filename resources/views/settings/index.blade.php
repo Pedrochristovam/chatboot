@@ -75,6 +75,11 @@
                     <div class="grid gap-4 sm:grid-cols-2">
                         <div><label for="business_start" class="mb-1 block text-xs font-semibold text-slate-700">Início</label><input id="business_start" type="time" x-model="form.business_start" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15"></div>
                         <div><label for="business_end" class="mb-1 block text-xs font-semibold text-slate-700">Fim</label><input id="business_end" type="time" x-model="form.business_end" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15"></div>
+                        <div class="sm:col-span-2">
+                            <label for="sla_first_response_minutes" class="mb-1 block text-xs font-semibold text-slate-700">SLA da primeira resposta (minutos úteis)</label>
+                            <input id="sla_first_response_minutes" type="number" min="1" max="1440" x-model.number="form.sla_first_response_minutes" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
+                            <p class="mt-1 text-[11px] text-slate-400">A contagem pausa automaticamente fora do horário comercial.</p>
+                        </div>
                     </div>
                 </div>
 
@@ -110,7 +115,7 @@
                         </div>
                         <div>
                             <label for="meta_token" class="mb-1 block text-xs font-semibold text-slate-700">Token de acesso</label>
-                            <input id="meta_token" type="password" x-model="form.meta_token" placeholder="EAAxxxx..." autocomplete="new-password" spellcheck="false" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
+                            <input id="meta_token" type="password" x-model="form.meta_token" :placeholder="form.meta_token_configured ? 'Token já configurado — deixe vazio para manter' : 'EAAxxxx...'" autocomplete="new-password" spellcheck="false" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
                         </div>
                         <div>
                             <label for="meta_phone_number_id" class="mb-1 block text-xs font-semibold text-slate-700">Phone Number ID</label>
@@ -118,7 +123,12 @@
                         </div>
                         <div>
                             <label for="webhook_verify_token" class="mb-1 block text-xs font-semibold text-slate-700">Webhook Verify Token</label>
-                            <input id="webhook_verify_token" type="password" x-model="form.webhook_verify_token" placeholder="mgi_webhook_secret" autocomplete="new-password" spellcheck="false" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
+                            <input id="webhook_verify_token" type="password" x-model="form.webhook_verify_token" :placeholder="form.webhook_verify_token_configured ? 'Token já configurado — deixe vazio para manter' : 'mgi_webhook_secret'" autocomplete="new-password" spellcheck="false" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
+                        </div>
+                        <div class="lg:col-span-2">
+                            <label for="meta_app_secret" class="mb-1 block text-xs font-semibold text-slate-700">App Secret da Meta</label>
+                            <input id="meta_app_secret" type="password" x-model="form.meta_app_secret" :placeholder="form.meta_app_secret_configured ? 'Segredo já configurado — deixe vazio para manter' : 'Cole o App Secret para validar a assinatura dos webhooks'" autocomplete="new-password" spellcheck="false" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#8B1E3F] focus:ring-2 focus:ring-[#8B1E3F]/15">
+                            <p class="mt-1 text-[11px] text-slate-400">Armazenado criptografado e nunca devolvido ao navegador.</p>
                         </div>
                         <div class="lg:col-span-2">
                             <label for="webhook_callback_url" class="mb-1 block text-xs font-semibold text-slate-700">URL do webhook</label>

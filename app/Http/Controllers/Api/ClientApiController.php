@@ -5,14 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Client\StoreClientRequest;
 use App\Http\Requests\Client\UpdateClientRequest;
-use App\Http\Requests\Message\SendMessageRequest;
 use Application\Services\Client\ClientService;
-use Application\Services\Conversation\ConversationService;
-use Application\Services\Conversation\MessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Infrastructure\Persistence\Eloquent\Models\Client;
-use Infrastructure\Persistence\Eloquent\Models\Conversation;
 
 class ClientApiController extends Controller
 {
@@ -20,6 +17,8 @@ class ClientApiController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        Gate::authorize('viewAny', Client::class);
+
         $clients = $this->clientService->paginate($request->only(['search', 'status', 'tag_id']));
 
         return response()->json($clients);
@@ -34,6 +33,8 @@ class ClientApiController extends Controller
 
     public function show(Client $client): JsonResponse
     {
+        Gate::authorize('view', $client);
+
         return response()->json($client->load('tags'));
     }
 
@@ -46,6 +47,8 @@ class ClientApiController extends Controller
 
     public function destroy(Client $client): JsonResponse
     {
+        Gate::authorize('delete', $client);
+
         $this->clientService->delete($client);
 
         return response()->json(['message' => 'Cliente removido.']);

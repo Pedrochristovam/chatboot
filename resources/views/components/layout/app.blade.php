@@ -12,7 +12,7 @@
     <style>[x-cloak]{display:none!important}</style>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
+<body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased" data-authenticated-user="{{ auth()->id() }}">
 
     {{-- Mobile overlay --}}
     <div x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"

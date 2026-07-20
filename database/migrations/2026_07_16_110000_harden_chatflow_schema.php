@@ -157,14 +157,15 @@ return new class extends Migration
     /** @param list<string> $columns */
     private function addIndexIfMissing(string $table, string $indexName, array $columns): void
     {
-        $exists = collect(DB::select("SHOW INDEX FROM `{$table}`"))
-            ->contains(fn ($row) => $row->Key_name === $indexName);
+        $exists = collect(Schema::getIndexes($table))
+            ->contains(fn (array $index) => ($index['name'] ?? null) === $indexName);
 
         if ($exists) {
             return;
         }
 
-        $cols = collect($columns)->map(fn ($c) => "`{$c}`")->implode(', ');
-        DB::statement("ALTER TABLE `{$table}` ADD INDEX `{$indexName}` ({$cols})");
+        Schema::table($table, function (Blueprint $blueprint) use ($columns, $indexName) {
+            $blueprint->index($columns, $indexName);
+        });
     }
 };

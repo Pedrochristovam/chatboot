@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\ConversationController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\ReportController;
 use App\Http\Controllers\Web\SettingsController;
+use App\Http\Controllers\Web\OperationsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
@@ -29,5 +30,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/clients', [ClientController::class, 'index'])->name('clients.index');
     Route::get('/agents', [AgentController::class, 'index'])->name('agents.index');
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/operations', [OperationsController::class, 'index'])
+        ->middleware('permission:audit.view')
+        ->name('operations.index');
+    Route::post('/operations/messages/{message}/retry', [OperationsController::class, 'retry'])
+        ->middleware('permission:audit.view')
+        ->name('operations.messages.retry');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
 });

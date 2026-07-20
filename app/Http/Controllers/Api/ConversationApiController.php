@@ -3,16 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Bot\SimulateInboundRequest;
+use App\Http\Requests\Conversation\AssignConversationRequest;
+use App\Http\Requests\Conversation\CloseConversationRequest;
+use App\Http\Requests\Conversation\StoreInternalNoteRequest;
+use App\Http\Requests\Conversation\TransferConversationRequest;
 use App\Http\Requests\Message\SendMessageRequest;
 use Application\DTOs\WhatsApp\IncomingMessageDTO;
 use Application\Services\Conversation\ConversationService;
 use Application\Services\Conversation\ConversationTransferService;
 use Application\Services\Conversation\InternalNoteService;
 use Application\Services\Conversation\MessageService;
+use Application\Services\Conversation\SlaService;
 use Application\Services\Settings\FeatureFlagService;
-use Domain\Shared\Enums\MessageSenderType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Infrastructure\Persistence\Eloquent\Models\Conversation;
 use Infrastructure\Persistence\Eloquent\Models\ConversationInternalNote;
@@ -23,18 +29,24 @@ class ConversationApiController extends Controller
         private readonly ConversationService $conversationService,
         private readonly MessageService $messageService,
         private readonly ConversationTransferService $transferService,
+        private readonly SlaService $sla,
         private readonly InternalNoteService $noteService,
         private readonly FeatureFlagService $features,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $conversations = $this->conversationService->listForInbox($request->only([
-            'search',
-            'status',
-            'closed_by',
-            'assigned_to',
-        ]));
+        Gate::authorize('viewAny', Conversation::class);
+
+        $conversations = $this->conversationService->listForInbox(
+            $request->only([
+                'search',
+                'status',
+                'closed_by',
+                'assigned_to',
+            ]),
+            $request->user(),
+        );
 
         return response()->json([
             'conversations' => $this->conversationService->toInboxArray($conversations),
@@ -42,8 +54,22 @@ class ConversationApiController extends Controller
         ]);
     }
 
-    public function show(Conversation $conversation): JsonResponse
+    public function card(Conversation $conversation, Request $request): JsonResponse
     {
+        Gate::authorize('view', $conversation);
+
+        $card = $this->conversationService->inboxCard($conversation->id, $request->user());
+        if (! $card) {
+            return response()->json(['message' => 'Conversa não encontrada.'], 404);
+        }
+
+        return response()->json(['conversation' => $card]);
+    }
+
+    public function show(Request $request, Conversation $conversation): JsonResponse
+    {
+        Gate::authorize('view', $conversation);
+
         $conversation = $this->conversationService->findWithDetails($conversation->id);
 
         if (! $conversation) {
@@ -51,6 +77,12 @@ class ConversationApiController extends Controller
         }
 
         $this->messageService->markAsRead($conversation);
+        $page = $this->messageService->messagesForConversation(
+            $conversation,
+            beforeId: $request->integer('before_id') ?: null,
+            limit: $request->integer('limit', 50) ?: 50,
+        );
+        $counts = $this->messageService->messageCounts($conversation);
 
         return response()->json([
             'conversation' => [
@@ -64,9 +96,10 @@ class ConversationApiController extends Controller
                 'closed_by' => $conversation->closedByAgent?->name ?? $conversation->assignedAgent?->name,
                 'waiting_since' => $conversation->waiting_since?->format('d/m/Y H:i'),
                 'sla_due_at' => $conversation->sla_due_at?->format('d/m/Y H:i'),
-                'client_messages' => $conversation->messages()->where('sender_type', MessageSenderType::Client)->count(),
-                'bot_messages' => $conversation->messages()->where('sender_type', MessageSenderType::Bot)->count(),
-                'agent_messages' => $conversation->messages()->where('sender_type', MessageSenderType::Agent)->count(),
+                'sla_state' => $this->sla->state($conversation),
+                'client_messages' => $counts['client_messages'],
+                'bot_messages' => $counts['bot_messages'],
+                'agent_messages' => $counts['agent_messages'],
                 'client' => [
                     'id' => $conversation->client->id,
                     'name' => $conversation->client->name,
@@ -81,7 +114,11 @@ class ConversationApiController extends Controller
                 ],
                 'assigned_agent' => $conversation->assignedAgent?->name,
             ],
-            'messages' => $this->messageService->messagesForConversation($conversation),
+            'messages' => $page['messages'],
+            'messages_meta' => [
+                'has_more' => $page['has_more'],
+                'next_before_id' => $page['next_before_id'],
+            ],
             'internal_notes' => $this->features->isEnabled('internal_notes', true)
                 ? $this->noteService->listForConversation($conversation)->map(fn ($n) => $this->noteService->serialize($n))->values()->all()
                 : [],
@@ -94,6 +131,7 @@ class ConversationApiController extends Controller
         if ($conversation->status->isReadOnlyForAgents()) {
             return response()->json([
                 'message' => 'Esta conversa está sob atendimento do bot. Você pode visualizar, mas não enviar mensagens.',
+                'error' => ['code' => 'conversation_read_only', 'type' => 'domain'],
             ], 403);
         }
 
@@ -113,37 +151,37 @@ class ConversationApiController extends Controller
                 );
             }
         } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 403);
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'conversation_message_forbidden', 'type' => 'domain'],
+            ], 403);
         }
 
         return response()->json($this->messageService->serializeMessage($message), 201);
     }
 
-    public function close(Conversation $conversation, Request $request): JsonResponse
+    public function close(Conversation $conversation, CloseConversationRequest $request): JsonResponse
     {
         $this->conversationService->close($conversation, $request->user()->id);
 
         return response()->json(['message' => 'Conversa encerrada.']);
     }
 
-    public function assign(Request $request, Conversation $conversation): JsonResponse
+    public function assign(AssignConversationRequest $request, Conversation $conversation): JsonResponse
     {
+        $data = $request->validated();
         $conversation = $this->conversationService->assign(
             $conversation,
-            $request->input('agent_id', $request->user()->id),
+            $data['agent_id'] ?? $request->user()->id,
             $request->user()->id,
         );
 
         return response()->json($conversation);
     }
 
-    public function transfer(Request $request, Conversation $conversation): JsonResponse
+    public function transfer(TransferConversationRequest $request, Conversation $conversation): JsonResponse
     {
-        $data = $request->validate([
-            'agent_id' => ['nullable', 'integer', 'exists:users,id'],
-            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'reason' => ['nullable', 'string', 'max:500'],
-        ]);
+        $data = $request->validated();
 
         try {
             $transfer = $this->transferService->transfer(
@@ -154,7 +192,10 @@ class ConversationApiController extends Controller
                 reason: $data['reason'] ?? null,
             );
         } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'conversation_transfer_failed', 'type' => 'domain'],
+            ], 422);
         }
 
         return response()->json([
@@ -166,6 +207,8 @@ class ConversationApiController extends Controller
 
     public function notes(Conversation $conversation): JsonResponse
     {
+        Gate::authorize('manageNotes', $conversation);
+
         $notes = $this->noteService->listForConversation($conversation);
 
         return response()->json([
@@ -173,16 +216,17 @@ class ConversationApiController extends Controller
         ]);
     }
 
-    public function storeNote(Request $request, Conversation $conversation): JsonResponse
+    public function storeNote(StoreInternalNoteRequest $request, Conversation $conversation): JsonResponse
     {
-        $data = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
-        ]);
+        $data = $request->validated();
 
         try {
             $note = $this->noteService->create($conversation, $request->user()->id, $data['body']);
         } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'internal_note_failed', 'type' => 'domain'],
+            ], 422);
         }
 
         return response()->json(['note' => $this->noteService->serialize($note)], 201);
@@ -190,23 +234,24 @@ class ConversationApiController extends Controller
 
     public function destroyNote(ConversationInternalNote $note): JsonResponse
     {
+        Gate::authorize('delete', $note);
+
         $this->noteService->delete($note);
 
         return response()->json(['ok' => true]);
     }
 
     /** Simula mensagem de cliente (para testar bot sem WhatsApp real). */
-    public function simulateInbound(Request $request): JsonResponse
+    public function simulateInbound(SimulateInboundRequest $request): JsonResponse
     {
         if (! $this->features->isEnabled('bot_panel_simulator', true)) {
-            return response()->json(['message' => 'Simulador desativado.'], 422);
+            return response()->json([
+                'message' => 'Simulador desativado.',
+                'error' => ['code' => 'bot_simulator_disabled', 'type' => 'domain'],
+            ], 422);
         }
 
-        $data = $request->validate([
-            'phone' => ['required', 'string', 'max:30'],
-            'content' => ['required', 'string', 'max:2000'],
-            'name' => ['nullable', 'string', 'max:120'],
-        ]);
+        $data = $request->validated();
 
         $phone = preg_replace('/\D+/', '', $data['phone']) ?: $data['phone'];
 

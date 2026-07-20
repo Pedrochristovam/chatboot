@@ -88,13 +88,21 @@
                 </div>
             </div>
 
-            <div class="custom-scrollbar flex-1 space-y-2.5 overflow-y-auto bg-slate-50 p-4 sm:p-5" @click="showEmojiPicker = false">
+            <div class="custom-scrollbar flex-1 space-y-2.5 overflow-y-auto bg-slate-50 p-4 sm:p-5" x-ref="messageList" @click="showEmojiPicker = false">
                 <div x-show="!selected && !loading" class="flex h-full min-h-[16rem] flex-col items-center justify-center text-center">
                     <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-slate-200 bg-white text-2xl">💬</div>
                     <p class="font-display text-lg font-semibold text-slate-900">MGI Chat</p>
                     <p class="mt-2 max-w-xs text-sm text-slate-500">Selecione uma conversa para ver mensagens e responder pelo WhatsApp.</p>
                 </div>
                 <div x-show="loading" class="py-10 text-center text-sm text-slate-400">Carregando mensagens...</div>
+                <div x-show="selected && hasMoreMessages && !loading" class="pb-1 text-center">
+                    <button type="button"
+                            @click="loadOlderMessages()"
+                            :disabled="loadingOlder"
+                            class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 hover:text-[#8B1E3F] disabled:opacity-50">
+                        <span x-text="loadingOlder ? 'Carregando...' : 'Carregar mensagens anteriores'"></span>
+                    </button>
+                </div>
                 <template x-for="msg in messages" :key="msg.id">
                     <div :class="msg.from === 'client' ? 'flex justify-start' : 'flex justify-end'">
                         <div :class="{
@@ -220,6 +228,16 @@
                     </div>
                 </div>
                 <div class="space-y-4 p-5">
+                    <div x-show="selectedConversation?.sla_due_at">
+                        <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">SLA de resposta</h4>
+                        <div class="rounded-xl border px-4 py-3"
+                             :class="selectedConversation?.sla_state === 'overdue' ? 'border-red-200 bg-red-50' : (selectedConversation?.sla_state === 'warning' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50')">
+                            <p class="text-sm font-bold"
+                               :class="selectedConversation?.sla_state === 'overdue' ? 'text-red-700' : (selectedConversation?.sla_state === 'warning' ? 'text-amber-700' : 'text-slate-700')"
+                               x-text="selectedConversation?.sla_state === 'overdue' ? 'Prazo excedido' : (selectedConversation?.sla_state === 'warning' ? 'Próximo do limite' : 'Dentro do prazo')"></p>
+                            <p class="mt-1 text-xs text-slate-500" x-text="'Vence em ' + selectedConversation?.sla_due_at"></p>
+                        </div>
+                    </div>
                     <div>
                         <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Empresa</h4>
                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" x-text="selectedClient?.company || 'Não informado'"></div>

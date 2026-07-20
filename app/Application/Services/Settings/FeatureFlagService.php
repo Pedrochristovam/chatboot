@@ -2,6 +2,7 @@
 
 namespace Application\Services\Settings;
 
+use Illuminate\Support\Facades\Cache;
 use Infrastructure\Persistence\Eloquent\Models\Setting;
 
 class FeatureFlagService
@@ -20,26 +21,29 @@ class FeatureFlagService
     public function set(string $key, bool $enabled): void
     {
         Setting::setValue('features', $key, $enabled ? '1' : '0', 'boolean');
+        Cache::forget('settings.features.all');
     }
 
     /** @return array<string, bool> */
     public function all(): array
     {
-        $keys = [
-            'realtime',
-            'internal_notes',
-            'transfers',
-            'audit_log',
-            'business_hours_bot',
-            'message_status_webhooks',
-            'bot_panel_simulator',
-        ];
+        return Cache::remember('settings.features.all', now()->addMinutes(10), function () {
+            $keys = [
+                'realtime',
+                'internal_notes',
+                'transfers',
+                'audit_log',
+                'business_hours_bot',
+                'message_status_webhooks',
+                'bot_panel_simulator',
+            ];
 
-        $out = [];
-        foreach ($keys as $key) {
-            $out[$key] = $this->isEnabled($key, true);
-        }
+            $out = [];
+            foreach ($keys as $key) {
+                $out[$key] = $this->isEnabled($key, true);
+            }
 
-        return $out;
+            return $out;
+        });
     }
 }

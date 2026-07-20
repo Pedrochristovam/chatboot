@@ -15,12 +15,14 @@ class SettingsSeeder extends Seeder
             ['group' => 'general', 'key' => 'logo', 'value' => '', 'type' => 'file'],
             ['group' => 'business_hours', 'key' => 'start', 'value' => '08:00', 'type' => 'string'],
             ['group' => 'business_hours', 'key' => 'end', 'value' => '18:00', 'type' => 'string'],
-            ['group' => 'business_hours', 'key' => 'days', 'value' => json_encode([1, 2, 3, 4, 5]), 'type' => 'json'],
+            ['group' => 'business_hours', 'key' => 'days', 'value' => [1, 2, 3, 4, 5], 'type' => 'json'],
+            ['group' => 'sla', 'key' => 'first_response_minutes', 'value' => 15, 'type' => 'integer'],
             ['group' => 'notifications', 'key' => 'auto_reply_message', 'value' => 'Olá! Recebemos sua mensagem e em breve um atendente irá respondê-lo.', 'type' => 'string'],
             ['group' => 'whatsapp', 'key' => 'driver', 'value' => 'null', 'type' => 'string'],
-            ['group' => 'whatsapp', 'key' => 'meta_token', 'value' => '', 'type' => 'string'],
+            ['group' => 'whatsapp', 'key' => 'meta_token', 'value' => '', 'type' => 'encrypted'],
             ['group' => 'whatsapp', 'key' => 'meta_phone_number_id', 'value' => '', 'type' => 'string'],
-            ['group' => 'whatsapp', 'key' => 'webhook_verify_token', 'value' => 'chatflow_webhook_secret', 'type' => 'string'],
+            ['group' => 'whatsapp', 'key' => 'meta_app_secret', 'value' => '', 'type' => 'encrypted'],
+            ['group' => 'whatsapp', 'key' => 'webhook_verify_token', 'value' => 'chatflow_webhook_secret', 'type' => 'encrypted'],
             ['group' => 'ai', 'key' => 'enabled', 'value' => '0', 'type' => 'boolean'],
             ['group' => 'ai', 'key' => 'bot_enabled', 'value' => '1', 'type' => 'boolean'],
             ['group' => 'ai', 'key' => 'model', 'value' => 'gpt-4o-mini', 'type' => 'string'],
@@ -38,10 +40,7 @@ class SettingsSeeder extends Seeder
         ];
 
         foreach ($settings as $setting) {
-            Setting::query()->updateOrCreate(
-                ['group' => $setting['group'], 'key' => $setting['key']],
-                ['value' => $setting['value'], 'type' => $setting['type']]
-            );
+            Setting::setValue($setting['group'], $setting['key'], $setting['value'], $setting['type']);
         }
     }
 }

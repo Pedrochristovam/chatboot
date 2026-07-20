@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Bot\ManageBotRequest;
 use Application\Services\Bot\BotKnowledgeService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Infrastructure\Persistence\Eloquent\Models\BotKnowledge;
 use Infrastructure\Persistence\Eloquent\Models\BotTopic;
 
@@ -15,6 +16,8 @@ class BotKnowledgeApiController extends Controller
 
     public function index(): JsonResponse
     {
+        Gate::authorize('viewAny', BotKnowledge::class);
+
         return response()->json([
             'topics' => $this->service->topicsPayload(),
             'stats' => $this->service->stats(),
@@ -23,7 +26,7 @@ class BotKnowledgeApiController extends Controller
         ]);
     }
 
-    public function updateAskName(Request $request): JsonResponse
+    public function updateAskName(ManageBotRequest $request): JsonResponse
     {
         $data = $request->validate([
             'ask_name_message' => ['required', 'string', 'max:1000'],
@@ -36,7 +39,7 @@ class BotKnowledgeApiController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function storeTopic(Request $request): JsonResponse
+    public function storeTopic(ManageBotRequest $request): JsonResponse
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:80'],
@@ -52,7 +55,7 @@ class BotKnowledgeApiController extends Controller
         return response()->json(['topic' => $this->service->serializeTopic($topic)], 201);
     }
 
-    public function updateTopic(Request $request, BotTopic $topic): JsonResponse
+    public function updateTopic(ManageBotRequest $request, BotTopic $topic): JsonResponse
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:80'],
@@ -70,12 +73,14 @@ class BotKnowledgeApiController extends Controller
 
     public function destroyTopic(BotTopic $topic): JsonResponse
     {
+        Gate::authorize('delete', $topic);
+
         $this->service->deleteTopic($topic);
 
         return response()->json(['ok' => true]);
     }
 
-    public function storeKnowledge(Request $request): JsonResponse
+    public function storeKnowledge(ManageBotRequest $request): JsonResponse
     {
         $data = $request->validate([
             'bot_topic_id' => ['required', 'exists:bot_topics,id'],
@@ -91,7 +96,7 @@ class BotKnowledgeApiController extends Controller
         return response()->json(['knowledge' => $this->service->serializeKnowledge($item)], 201);
     }
 
-    public function updateKnowledge(Request $request, BotKnowledge $knowledge): JsonResponse
+    public function updateKnowledge(ManageBotRequest $request, BotKnowledge $knowledge): JsonResponse
     {
         $data = $request->validate([
             'bot_topic_id' => ['sometimes', 'exists:bot_topics,id'],
@@ -109,6 +114,8 @@ class BotKnowledgeApiController extends Controller
 
     public function destroyKnowledge(BotKnowledge $knowledge): JsonResponse
     {
+        Gate::authorize('delete', $knowledge);
+
         $this->service->deleteKnowledge($knowledge);
 
         return response()->json(['ok' => true]);

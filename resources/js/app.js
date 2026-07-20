@@ -249,6 +249,18 @@ Alpine.data('agentsApp', () => ({
 
 Alpine.start();
 
+if (document.body.dataset.authenticatedUser) {
+    const heartbeat = () => api.post('/presence/heartbeat').catch(() => {});
+    heartbeat();
+    const heartbeatTimer = window.setInterval(heartbeat, 60000);
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') heartbeat();
+    });
+
+    window.addEventListener('pagehide', () => window.clearInterval(heartbeatTimer));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('canvas[data-type]').forEach((canvas) => initChart(canvas));
 });

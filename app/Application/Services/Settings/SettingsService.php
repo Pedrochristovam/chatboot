@@ -13,13 +13,18 @@ class SettingsService
             'primary_color' => Setting::getValue('general', 'primary_color', '#8B1E3F'),
             'business_start' => Setting::getValue('business_hours', 'start', '08:00'),
             'business_end' => Setting::getValue('business_hours', 'end', '18:00'),
+            'sla_first_response_minutes' => Setting::getValue('sla', 'first_response_minutes', 15),
             'auto_reply' => Setting::getValue('notifications', 'auto_reply_message'),
             'ai_enabled' => Setting::getValue('ai', 'enabled', false),
             'bot_enabled' => Setting::getValue('ai', 'bot_enabled', true),
             'whatsapp_driver' => Setting::getValue('whatsapp', 'driver', config('whatsapp.default', 'null')),
-            'meta_token' => Setting::getValue('whatsapp', 'meta_token', config('whatsapp.drivers.meta.token', '')),
+            'meta_token' => '',
+            'meta_token_configured' => filled(Setting::getValue('whatsapp', 'meta_token', config('whatsapp.drivers.meta.token', ''))),
             'meta_phone_number_id' => Setting::getValue('whatsapp', 'meta_phone_number_id', config('whatsapp.drivers.meta.phone_number_id', '')),
-            'webhook_verify_token' => Setting::getValue('whatsapp', 'webhook_verify_token', config('whatsapp.drivers.meta.webhook_verify_token', 'chatflow_webhook_secret')),
+            'meta_app_secret' => '',
+            'meta_app_secret_configured' => filled(Setting::getValue('whatsapp', 'meta_app_secret', config('whatsapp.drivers.meta.app_secret', ''))),
+            'webhook_verify_token' => '',
+            'webhook_verify_token_configured' => filled(Setting::getValue('whatsapp', 'webhook_verify_token', config('whatsapp.drivers.meta.webhook_verify_token', ''))),
             'webhook_callback_url' => rtrim(config('app.url'), '/').'/api/webhook/whatsapp',
         ];
     }
@@ -31,17 +36,22 @@ class SettingsService
             'primary_color' => ['general', 'primary_color', 'string'],
             'business_start' => ['business_hours', 'start', 'string'],
             'business_end' => ['business_hours', 'end', 'string'],
+            'sla_first_response_minutes' => ['sla', 'first_response_minutes', 'integer'],
             'auto_reply' => ['notifications', 'auto_reply_message', 'string'],
             'ai_enabled' => ['ai', 'enabled', 'boolean'],
             'bot_enabled' => ['ai', 'bot_enabled', 'boolean'],
             'whatsapp_driver' => ['whatsapp', 'driver', 'string'],
-            'meta_token' => ['whatsapp', 'meta_token', 'string'],
+            'meta_token' => ['whatsapp', 'meta_token', 'encrypted'],
             'meta_phone_number_id' => ['whatsapp', 'meta_phone_number_id', 'string'],
-            'webhook_verify_token' => ['whatsapp', 'webhook_verify_token', 'string'],
+            'meta_app_secret' => ['whatsapp', 'meta_app_secret', 'encrypted'],
+            'webhook_verify_token' => ['whatsapp', 'webhook_verify_token', 'encrypted'],
         ];
 
         foreach ($map as $key => [$group, $settingKey, $type]) {
             if (array_key_exists($key, $data)) {
+                if ($type === 'encrypted' && blank($data[$key])) {
+                    continue;
+                }
                 Setting::setValue($group, $settingKey, $data[$key], $type);
             }
         }

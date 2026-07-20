@@ -3,12 +3,13 @@
 namespace App\Http\Requests\Agent;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Infrastructure\Persistence\Eloquent\Models\User;
 
 class StoreAgentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->can('create', User::class) === true;
     }
 
     public function rules(): array

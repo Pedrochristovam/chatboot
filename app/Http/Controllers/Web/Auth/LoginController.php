@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use Application\Services\Conversation\AgentPresenceService;
 use Domain\Shared\Enums\AgentStatus;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,10 +38,10 @@ class LoginController extends Controller
             ->onlyInput('email');
     }
 
-    public function logout(Request $request): RedirectResponse
+    public function logout(Request $request, AgentPresenceService $presence): RedirectResponse
     {
         if ($request->user()) {
-            $request->user()->update(['status' => AgentStatus::Offline]);
+            $presence->markOffline($request->user(), 'logout');
         }
 
         Auth::logout();

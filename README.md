@@ -376,6 +376,7 @@ Mais: [`docs/DEPLOY.md`](docs/DEPLOY.md)
 | [`docs/WHATSAPP.md`](docs/WHATSAPP.md) | Meta, webhook, mídia |
 | [`docs/API.md`](docs/API.md) | Endpoints internos |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Produção e operação |
+| [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) | Filas, presença, SLA, health checks e recuperação |
 
 ---
 
@@ -397,6 +398,8 @@ Após `db:seed`:
 - [x] Inbox + bot FAQ + encerradas  
 - [x] Fotos (receber/enviar)  
 - [x] Base: status webhook, transfer, notes, audit, flags, SLA  
+- [x] Idempotência, retries ordenados, presença e retorno automático à fila
+- [x] Assinatura Meta, health checks e painel de mensagens com falha
 - [ ] UI de notas e transferência  
 - [ ] Reverb ligado por padrão  
 - [ ] Templates oficiais Meta (janela 24h)  

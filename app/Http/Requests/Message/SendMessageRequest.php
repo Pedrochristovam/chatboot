@@ -9,7 +9,10 @@ class SendMessageRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $conversation = $this->route('conversation');
+
+        return $conversation !== null
+            && $this->user()?->can('sendMessage', $conversation) === true;
     }
 
     public function rules(): array

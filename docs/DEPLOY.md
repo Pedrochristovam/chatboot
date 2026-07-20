@@ -13,7 +13,7 @@
 
 ```ini
 [program:mgi-queue]
-command=php /var/www/chatboot/artisan queue:work --sleep=1 --tries=3 --max-time=3600
+command=php /var/www/chatboot/artisan queue:work --sleep=1 --tries=20 --timeout=120 --backoff=5 --max-time=3600
 autostart=true
 autorestart=true
 user=www-data
@@ -23,6 +23,7 @@ user=www-data
 
 ```bash
 php artisan reverb:start
+php artisan schedule:work
 ```
 
 10. Backup diário do MySQL  
