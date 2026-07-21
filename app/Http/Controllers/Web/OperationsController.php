@@ -8,6 +8,7 @@ use Application\Services\Operations\HealthService;
 use Domain\Shared\Enums\MessageStatus;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
+use Infrastructure\Persistence\Eloquent\Models\AuditLog;
 use Infrastructure\Persistence\Eloquent\Models\Message;
 
 class OperationsController extends Controller
@@ -21,9 +22,17 @@ class OperationsController extends Controller
             ->limit(100)
             ->get();
 
+        $auditLogs = AuditLog::query()
+            ->with('user')
+            ->latest('created_at')
+            ->limit(80)
+            ->get();
+
         return view('operations.index', [
             'health' => $health->snapshot(),
             'failedMessages' => $failedMessages,
+            'auditLogs' => $auditLogs,
+            'queueStats' => $health->queueStats(),
         ]);
     }
 

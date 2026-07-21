@@ -93,17 +93,24 @@ class WhatsAppMediaService
         return rtrim((string) config('app.url'), '/').$relative;
     }
 
-    /** @return array{url: string, mime: string, name: string, is_image: bool}|null */
+    /** @return array{url: string, mime: string, name: string, is_image: bool, kind: string}|null */
     public function serializeAttachment(Attachment $attachment): array
     {
         $url = $this->publicUrl($attachment) ?? '';
+        $mime = (string) $attachment->mime_type;
 
         return [
             'id' => $attachment->id,
             'url' => $url,
-            'mime' => $attachment->mime_type,
+            'mime' => $mime,
             'name' => $attachment->file_name,
-            'is_image' => str_starts_with((string) $attachment->mime_type, 'image/'),
+            'is_image' => str_starts_with($mime, 'image/'),
+            'kind' => match (true) {
+                str_starts_with($mime, 'image/') => 'image',
+                str_starts_with($mime, 'audio/') => 'audio',
+                str_starts_with($mime, 'video/') => 'video',
+                default => 'document',
+            },
         ];
     }
 

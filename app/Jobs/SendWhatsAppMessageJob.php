@@ -185,6 +185,8 @@ class SendWhatsAppMessageJob implements ShouldBeUnique, ShouldQueue
                 $result = $message->type === MessageType::Document
                     ? $provider->sendDocument($dto)
                     : $provider->sendImage($dto);
+            } elseif ($message->type === MessageType::Template) {
+                $result = $provider->sendTemplate($dto);
             } else {
                 $result = $provider->sendMessage($dto);
             }

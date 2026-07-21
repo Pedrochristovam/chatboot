@@ -251,6 +251,28 @@ Alpine.start();
 
 if (document.body.dataset.authenticatedUser) {
     const heartbeat = () => api.post('/presence/heartbeat').catch(() => {});
+    const markOffline = () => {
+        try {
+            const token = document.querySelector('meta[name="csrf-token"]')?.content;
+            if (navigator.sendBeacon) {
+                const body = new Blob([JSON.stringify({ _token: token })], { type: 'application/json' });
+                // Prefer fetch keepalive so CSRF cookie/session header still applies
+            }
+            fetch('/api/internal/presence/offline', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': token || '',
+                },
+                credentials: 'same-origin',
+                keepalive: true,
+                body: '{}',
+            }).catch(() => {});
+        } catch (_) {}
+    };
+
     heartbeat();
     const heartbeatTimer = window.setInterval(heartbeat, 60000);
 
@@ -258,7 +280,10 @@ if (document.body.dataset.authenticatedUser) {
         if (document.visibilityState === 'visible') heartbeat();
     });
 
-    window.addEventListener('pagehide', () => window.clearInterval(heartbeatTimer));
+    window.addEventListener('pagehide', () => {
+        window.clearInterval(heartbeatTimer);
+        markOffline();
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

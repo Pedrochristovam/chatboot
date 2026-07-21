@@ -18,6 +18,8 @@ interface WhatsAppProviderInterface
 
     public function sendLocation(OutgoingMessageDTO $message): SendResultDTO;
 
+    public function sendTemplate(OutgoingMessageDTO $message): SendResultDTO;
+
     /**
      * Baixa mídia do provedor.
      *

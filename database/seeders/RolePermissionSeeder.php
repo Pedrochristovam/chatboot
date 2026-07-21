@@ -39,7 +39,7 @@ class RolePermissionSeeder extends Seeder
                 'name' => 'Administrador',
                 'description' => 'Gerencia equipe e configurações',
                 'permissions' => [
-                    'dashboard.view', 'clients.manage', 'conversations.manage', 'transfers.manage',
+                    'dashboard.view', 'clients.manage', 'conversations.view', 'conversations.manage', 'transfers.manage',
                     'notes.manage', 'bot.manage', 'agents.manage', 'reports.view', 'settings.manage', 'audit.view',
                 ],
             ],
@@ -47,7 +47,7 @@ class RolePermissionSeeder extends Seeder
                 'name' => 'Supervisor',
                 'description' => 'Supervisiona atendimentos do departamento',
                 'permissions' => [
-                    'dashboard.view', 'clients.manage', 'conversations.manage', 'transfers.manage',
+                    'dashboard.view', 'clients.manage', 'conversations.view', 'conversations.manage', 'transfers.manage',
                     'notes.manage', 'reports.view', 'audit.view',
                 ],
             ],

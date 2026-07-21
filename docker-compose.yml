@@ -1,0 +1,97 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8000"
+    env_file:
+      - .env
+    environment:
+      APP_URL: http://localhost:8888
+      DB_HOST: mysql
+      DB_DATABASE: chatflow_crm
+      DB_USERNAME: chatflow
+      DB_PASSWORD: secret
+      REDIS_HOST: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+      - redis
+    command: php artisan serve --host=0.0.0.0 --port=8000
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+      REDIS_HOST: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+      - redis
+    command: php artisan queue:work --sleep=1 --tries=20 --timeout=120
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+      REDIS_HOST: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - mysql
+      - redis
+    command: php artisan schedule:work
+
+  mysql:
+    image: mysql:8.4
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_DATABASE: chatflow_crm
+      MYSQL_USER: chatflow
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - chatflow_mysql:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - chatflow_redis:/data
+
+  # Opcional: phpMyAdmin
+  phpmyadmin:
+    image: phpmyadmin:5
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: chatflow
+      PMA_PASSWORD: secret
+    depends_on:
+      - mysql
+
+volumes:
+  chatflow_mysql:
+  chatflow_redis:

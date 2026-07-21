@@ -34,6 +34,11 @@ class WebhookController extends Controller
         $rawPayload = $request->getContent();
         $appSecret = $this->whatsappConfig->metaAppSecret();
         $signatureValid = null;
+        $requireSignature = app()->environment('production') || filled($appSecret);
+
+        if ($requireSignature && blank($appSecret)) {
+            return response()->json(['message' => 'Webhook secret not configured.'], 503);
+        }
 
         if (filled($appSecret)) {
             $expected = 'sha256='.hash_hmac('sha256', $rawPayload, $appSecret);

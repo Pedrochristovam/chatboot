@@ -12,6 +12,22 @@ const EMOJI_DATA = Array.isArray(emojiCategories) && emojiCategories.length
     ? emojiCategories
     : FALLBACK_EMOJIS;
 
+const toast = (icon, title) => {
+    window.Swal?.fire({
+        toast: true,
+        position: 'top-end',
+        icon,
+        title,
+        showConfirmButton: false,
+        timer: 2800,
+    });
+};
+
+const apiError = (e, fallback = 'Falha na requisição.') =>
+    e.response?.data?.message
+    || Object.values(e.response?.data?.errors || {}).flat().join(', ')
+    || fallback;
+
 export default () => ({
     mobileView: 'list',
     search: '',
@@ -25,10 +41,30 @@ export default () => ({
     pendingImageName: '',
     loading: false,
     loadingOlder: false,
+    loadingMoreInbox: false,
     hasMoreMessages: false,
     nextBeforeId: null,
+    inboxMeta: { total: 0, limit: 50, offset: 0, has_more: false },
     conversations: [],
     messages: [],
+    internalNotes: [],
+    scheduledMessages: [],
+    noteDraft: '',
+    scheduleDraft: '',
+    scheduleAt: '',
+    agents: [],
+    departments: [],
+    currentUserId: null,
+    transferAgentId: '',
+    transferDepartmentId: '',
+    transferReason: '',
+    templateName: '',
+    templateLanguage: 'pt_BR',
+    templateParams: '',
+    showTransferModal: false,
+    showTemplateModal: false,
+    showScheduleModal: false,
+    networkError: null,
     showEmojiPicker: false,
     emojiTab: EMOJI_DATA[0]?.id || 'smileys',
     emojiSearch: '',
@@ -45,10 +81,33 @@ export default () => ({
         return this.selectedConversation?.is_read_only ?? this.selected?.is_read_only ?? false;
     },
 
+    get careWindowOpen() {
+        return this.selectedConversation?.care_window?.open !== false;
+    },
+
+    get canClaim() {
+        return !this.isReadOnly
+            && this.selected
+            && (!this.selectedConversation?.assigned_to || this.selectedConversation?.assigned_to === this.currentUserId);
+    },
+
     init() {
         this.refreshVisibleEmojis();
+        this.loadLookup();
         this.loadConversations();
         this.subscribeInbox();
+    },
+
+    async loadLookup() {
+        try {
+            const { data } = await api.get('/conversations/lookup');
+            this.agents = data.agents || [];
+            this.departments = data.departments || [];
+            this.currentUserId = data.current_user_id;
+            this.networkError = null;
+        } catch (e) {
+            this.networkError = 'Não foi possível carregar atendentes/departamentos.';
+        }
     },
 
     refreshVisibleEmojis() {
@@ -127,12 +186,21 @@ export default () => ({
         }
     },
 
-    async loadConversations({ preserveSelection = false } = {}) {
+    async loadConversations({ preserveSelection = false, append = false } = {}) {
         try {
+            const offset = append ? this.conversations.length : 0;
             const { data } = await api.get('/conversations', {
-                params: { search: this.search, status: this.activeFilter },
+                params: {
+                    search: this.search,
+                    status: this.activeFilter,
+                    limit: 50,
+                    offset,
+                },
             });
-            this.conversations = data.conversations || [];
+            const rows = data.conversations || [];
+            this.inboxMeta = data.meta || this.inboxMeta;
+            this.conversations = append ? [...this.conversations, ...rows.filter((r) => !this.conversations.some((c) => c.id === r.id))] : rows;
+            this.networkError = null;
             if (this.conversations.length && !this.selected && !preserveSelection) {
                 await this.selectConversation(this.conversations[0]);
             } else if (this.selected) {
@@ -146,7 +214,18 @@ export default () => ({
                 }
             }
         } catch (e) {
-            console.error('Erro ao carregar conversas', e);
+            this.networkError = 'Falha ao carregar a caixa de entrada.';
+            toast('error', this.networkError);
+        }
+    },
+
+    async loadMoreInbox() {
+        if (!this.inboxMeta?.has_more || this.loadingMoreInbox) return;
+        this.loadingMoreInbox = true;
+        try {
+            await this.loadConversations({ preserveSelection: true, append: true });
+        } finally {
+            this.loadingMoreInbox = false;
         }
     },
 
@@ -161,6 +240,8 @@ export default () => ({
         this.showEmojiPicker = false;
         this.loading = true;
         this.messages = [];
+        this.internalNotes = [];
+        this.scheduledMessages = [];
         this.hasMoreMessages = false;
         this.nextBeforeId = null;
         try {
@@ -172,9 +253,13 @@ export default () => ({
             this.nextBeforeId = data.messages_meta?.next_before_id || null;
             this.selectedClient = data.conversation.client;
             this.selectedConversation = data.conversation;
+            this.internalNotes = data.internal_notes || [];
+            this.scheduledMessages = data.scheduled_messages || [];
+            this.networkError = null;
             this.subscribeRealtime(conv.id);
         } catch (e) {
-            console.error('Erro ao carregar mensagens', e);
+            this.networkError = 'Não foi possível abrir a conversa.';
+            toast('error', this.networkError);
         } finally {
             this.loading = false;
         }
@@ -200,7 +285,7 @@ export default () => ({
                 }
             });
         } catch (e) {
-            console.error('Erro ao carregar histórico', e);
+            toast('error', 'Erro ao carregar histórico');
         } finally {
             this.loadingOlder = false;
         }
@@ -336,10 +421,9 @@ export default () => ({
             }
             this.messages.push(data);
             this.selected.preview = data.image_url ? '📷 Imagem' : (data.text || caption);
+            this.networkError = null;
         } catch (e) {
-            const msg = e.response?.data?.message
-                || Object.values(e.response?.data?.errors || {}).flat().join(', ')
-                || 'Não foi possível enviar a mensagem.';
+            const msg = apiError(e, 'Não foi possível enviar a mensagem.');
             window.Swal?.fire('Erro', msg, 'error');
             this.newMessage = caption;
             if (imageFile) {
@@ -347,6 +431,134 @@ export default () => ({
                 this.pendingImageName = imageFile.name;
                 this.pendingImagePreview = URL.createObjectURL(imageFile);
             }
+        }
+    },
+
+    async claimConversation() {
+        if (!this.selected || this.isReadOnly) return;
+        try {
+            await api.post(`/conversations/${this.selected.id}/assign`, {});
+            toast('success', 'Conversa assumida');
+            await this.selectConversation(this.selected);
+            await this.loadConversations({ preserveSelection: true });
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Não foi possível assumir.'), 'error');
+        }
+    },
+
+    openTransferModal() {
+        this.transferAgentId = '';
+        this.transferDepartmentId = this.selectedConversation?.department_id || '';
+        this.transferReason = '';
+        this.showTransferModal = true;
+    },
+
+    async submitTransfer() {
+        if (!this.selected) return;
+        if (!this.transferAgentId && !this.transferDepartmentId) {
+            window.Swal?.fire('Atenção', 'Selecione um atendente ou departamento.', 'warning');
+            return;
+        }
+        try {
+            await api.post(`/conversations/${this.selected.id}/transfer`, {
+                agent_id: this.transferAgentId || null,
+                department_id: this.transferDepartmentId || null,
+                reason: this.transferReason || null,
+            });
+            this.showTransferModal = false;
+            toast('success', 'Conversa transferida');
+            await this.loadConversations({ preserveSelection: true });
+            this.selected = null;
+            this.selectedConversation = null;
+            this.messages = [];
+            this.mobileView = 'list';
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Falha na transferência.'), 'error');
+        }
+    },
+
+    async addNote() {
+        const body = (this.noteDraft || '').trim();
+        if (!body || !this.selected) return;
+        try {
+            const { data } = await api.post(`/conversations/${this.selected.id}/notes`, { body });
+            this.internalNotes = [data.note, ...this.internalNotes];
+            this.noteDraft = '';
+            toast('success', 'Nota adicionada');
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Não foi possível salvar a nota.'), 'error');
+        }
+    },
+
+    async removeNote(note) {
+        try {
+            await api.delete(`/conversation-notes/${note.id}`);
+            this.internalNotes = this.internalNotes.filter((n) => n.id !== note.id);
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Não foi possível remover.'), 'error');
+        }
+    },
+
+    openScheduleModal() {
+        const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
+        inOneHour.setMinutes(inOneHour.getMinutes() - inOneHour.getTimezoneOffset());
+        this.scheduleAt = inOneHour.toISOString().slice(0, 16);
+        this.scheduleDraft = '';
+        this.showScheduleModal = true;
+    },
+
+    async submitSchedule() {
+        if (!this.selected || !(this.scheduleDraft || '').trim() || !this.scheduleAt) return;
+        try {
+            const { data } = await api.post(`/conversations/${this.selected.id}/scheduled-messages`, {
+                content: this.scheduleDraft.trim(),
+                scheduled_at: new Date(this.scheduleAt).toISOString(),
+            });
+            this.scheduledMessages = [...(this.scheduledMessages || []), data.scheduled];
+            this.showScheduleModal = false;
+            toast('success', 'Mensagem agendada');
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Falha ao agendar.'), 'error');
+        }
+    },
+
+    async cancelSchedule(item) {
+        try {
+            await api.delete(`/scheduled-messages/${item.id}`);
+            this.scheduledMessages = this.scheduledMessages.filter((s) => s.id !== item.id);
+            toast('success', 'Agendamento cancelado');
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Não foi possível cancelar.'), 'error');
+        }
+    },
+
+    openTemplateModal() {
+        this.templateName = '';
+        this.templateLanguage = 'pt_BR';
+        this.templateParams = '';
+        this.showTemplateModal = true;
+    },
+
+    async submitTemplate() {
+        if (!this.selected || !(this.templateName || '').trim()) return;
+        const params = (this.templateParams || '')
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        try {
+            const { data } = await api.post(`/conversations/${this.selected.id}/templates`, {
+                template_name: this.templateName.trim(),
+                language: this.templateLanguage || 'pt_BR',
+                body_parameters: params,
+            });
+            this.messages.push(data);
+            this.showTemplateModal = false;
+            toast('success', 'Template enviado');
+            if (this.selectedConversation?.care_window) {
+                this.selectedConversation.care_window.open = true;
+            }
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Falha ao enviar template.'), 'error');
         }
     },
 
@@ -361,20 +573,23 @@ export default () => ({
             confirmButtonText: 'Encerrar',
         });
         if (!result?.isConfirmed) return;
-        await api.post(`/conversations/${this.selected.id}/close`);
-        await this.loadConversations({ preserveSelection: true });
-        this.selected = null;
-        this.selectedConversation = null;
-        this.messages = [];
-        this.showEmojiPicker = false;
-        this.mobileView = 'list';
-        window.Swal?.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'success',
-            title: 'Encerrada — veja em “Encerradas por mim”',
-            showConfirmButton: false,
-            timer: 2800,
-        });
+        try {
+            await api.post(`/conversations/${this.selected.id}/close`);
+            await this.loadConversations({ preserveSelection: true });
+            this.selected = null;
+            this.selectedConversation = null;
+            this.messages = [];
+            this.showEmojiPicker = false;
+            this.mobileView = 'list';
+            toast('success', 'Encerrada — veja em “Encerradas por mim”');
+        } catch (e) {
+            window.Swal?.fire('Erro', apiError(e, 'Não foi possível encerrar.'), 'error');
+        }
+    },
+
+    retryLoad() {
+        this.loadLookup();
+        this.loadConversations({ preserveSelection: true });
+        if (this.selected) this.selectConversation(this.selected);
     },
 });

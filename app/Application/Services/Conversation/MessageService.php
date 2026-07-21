@@ -7,6 +7,7 @@ use App\Events\ConversationUpdated;
 use App\Jobs\SendWhatsAppMessageJob;
 use Application\DTOs\WhatsApp\IncomingMessageDTO;
 use Application\Services\Bot\BotService;
+use Application\Services\Messaging\CustomerCareWindowService;
 use Application\Services\WhatsApp\WhatsAppMediaService;
 use Domain\Shared\Enums\ClientStatus;
 use Domain\Shared\Enums\ConversationStatus;
@@ -27,12 +28,14 @@ class MessageService
         private readonly BotService $botService,
         private readonly WhatsAppMediaService $mediaService,
         private readonly SlaService $sla,
+        private readonly CustomerCareWindowService $careWindow,
     ) {}
 
     public function sendFromAgent(Conversation $conversation, int $agentId, string $content): Message
     {
         $messageId = DB::transaction(function () use ($conversation, $agentId, $content) {
             $locked = $this->lockForAgentSend($conversation, $agentId);
+            $this->careWindow->assertCanSendSessionMessage($locked);
             $message = Message::query()->create([
                 'conversation_id' => $locked->id,
                 'sender_type' => MessageSenderType::Agent,
@@ -63,6 +66,7 @@ class MessageService
         $caption = filled($caption) ? trim($caption) : null;
         $messageId = DB::transaction(function () use ($conversation, $agentId, $file, $caption) {
             $locked = $this->lockForAgentSend($conversation, $agentId);
+            $this->careWindow->assertCanSendSessionMessage($locked);
             $message = Message::query()->create([
                 'conversation_id' => $locked->id,
                 'sender_type' => MessageSenderType::Agent,
@@ -72,6 +76,48 @@ class MessageService
                 'status' => MessageStatus::Pending,
             ]);
             $this->mediaService->attachUploadedImage($message, $file);
+            $this->touchConversationAfterAgentSend($locked, $agentId);
+            SendWhatsAppMessageJob::dispatch($message->id)->afterCommit();
+            DB::afterCommit(fn () => event(new ConversationUpdated($locked->id, 'message_sent')));
+
+            return $message->id;
+        }, 3);
+
+        $message = Message::query()->with('attachments')->findOrFail($messageId);
+        event(new MessageSent($message));
+
+        return $message;
+    }
+
+    public function sendTemplateFromAgent(
+        Conversation $conversation,
+        int $agentId,
+        string $templateName,
+        string $language = 'pt_BR',
+        array $bodyParameters = [],
+        array $components = [],
+    ): Message {
+        $messageId = DB::transaction(function () use ($conversation, $agentId, $templateName, $language, $bodyParameters, $components) {
+            $locked = $this->lockForAgentSend($conversation, $agentId);
+            $preview = '[template] '.$templateName;
+            if ($bodyParameters !== []) {
+                $preview .= ': '.implode(' · ', array_map('strval', $bodyParameters));
+            }
+
+            $message = Message::query()->create([
+                'conversation_id' => $locked->id,
+                'sender_type' => MessageSenderType::Agent,
+                'sender_id' => $agentId,
+                'type' => MessageType::Template,
+                'content' => $preview,
+                'status' => MessageStatus::Pending,
+                'metadata' => [
+                    'template_name' => $templateName,
+                    'language' => $language,
+                    'body_parameters' => $bodyParameters,
+                    'components' => $components,
+                ],
+            ]);
             $this->touchConversationAfterAgentSend($locked, $agentId);
             SendWhatsAppMessageJob::dispatch($message->id)->afterCommit();
             DB::afterCommit(fn () => event(new ConversationUpdated($locked->id, 'message_sent')));
@@ -266,6 +312,14 @@ class MessageService
             ->all();
 
         $primary = $attachments[0] ?? null;
+        $kind = $primary['kind'] ?? match ($message->type) {
+            MessageType::Image, MessageType::Sticker => 'image',
+            MessageType::Audio => 'audio',
+            MessageType::Video => 'video',
+            MessageType::Document => 'document',
+            MessageType::Template => 'template',
+            default => 'text',
+        };
 
         return [
             'id' => $message->id,
@@ -275,11 +329,16 @@ class MessageService
                 default => 'agent',
             },
             'type' => $message->type?->value ?? 'text',
+            'kind' => $kind,
             'text' => $message->content,
             'time' => $message->created_at->format('H:i'),
             'status' => $message->status->value,
             'attachments' => $attachments,
             'image_url' => ($primary && ($primary['is_image'] ?? false)) ? $primary['url'] : null,
+            'audio_url' => ($kind === 'audio' && $primary) ? $primary['url'] : null,
+            'video_url' => ($kind === 'video' && $primary) ? $primary['url'] : null,
+            'document_url' => ($kind === 'document' && $primary) ? $primary['url'] : null,
+            'document_name' => ($kind === 'document' && $primary) ? ($primary['name'] ?? 'Arquivo') : null,
         ];
     }
 

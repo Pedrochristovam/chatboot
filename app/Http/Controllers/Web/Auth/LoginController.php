@@ -20,9 +20,12 @@ class LoginController extends Controller
 
     public function login(LoginRequest $request): RedirectResponse
     {
+        $request->ensureIsNotRateLimited();
+
         $credentials = $request->only('email', 'password');
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
+            $request->clearRateLimiter();
             $request->session()->regenerate();
 
             $request->user()->update([
@@ -32,6 +35,8 @@ class LoginController extends Controller
 
             return redirect()->intended(route('dashboard'));
         }
+
+        $request->hitRateLimiter();
 
         return back()
             ->withErrors(['email' => 'Credenciais inválidas.'])

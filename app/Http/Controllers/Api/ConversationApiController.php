@@ -9,19 +9,27 @@ use App\Http\Requests\Conversation\CloseConversationRequest;
 use App\Http\Requests\Conversation\StoreInternalNoteRequest;
 use App\Http\Requests\Conversation\TransferConversationRequest;
 use App\Http\Requests\Message\SendMessageRequest;
+use App\Http\Requests\Message\SendTemplateMessageRequest;
+use App\Http\Requests\Messaging\StoreScheduledMessageRequest;
 use Application\DTOs\WhatsApp\IncomingMessageDTO;
 use Application\Services\Conversation\ConversationService;
 use Application\Services\Conversation\ConversationTransferService;
 use Application\Services\Conversation\InternalNoteService;
 use Application\Services\Conversation\MessageService;
 use Application\Services\Conversation\SlaService;
+use Application\Services\Messaging\CustomerCareWindowService;
+use Application\Services\Messaging\ScheduledMessageService;
 use Application\Services\Settings\FeatureFlagService;
+use Domain\Shared\Enums\AgentStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Infrastructure\Persistence\Eloquent\Models\Conversation;
 use Infrastructure\Persistence\Eloquent\Models\ConversationInternalNote;
+use Infrastructure\Persistence\Eloquent\Models\Department;
+use Infrastructure\Persistence\Eloquent\Models\ScheduledMessage;
+use Infrastructure\Persistence\Eloquent\Models\User;
 
 class ConversationApiController extends Controller
 {
@@ -32,25 +40,57 @@ class ConversationApiController extends Controller
         private readonly SlaService $sla,
         private readonly InternalNoteService $noteService,
         private readonly FeatureFlagService $features,
+        private readonly CustomerCareWindowService $careWindow,
+        private readonly ScheduledMessageService $scheduledMessages,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('viewAny', Conversation::class);
 
-        $conversations = $this->conversationService->listForInbox(
+        $page = $this->conversationService->listForInbox(
             $request->only([
                 'search',
                 'status',
                 'closed_by',
                 'assigned_to',
+                'limit',
+                'offset',
             ]),
             $request->user(),
         );
 
         return response()->json([
-            'conversations' => $this->conversationService->toInboxArray($conversations),
+            'conversations' => $this->conversationService->toInboxArray($page['items']),
+            'meta' => $page['meta'],
             'features' => $this->features->all(),
+        ]);
+    }
+
+    public function lookup(Request $request): JsonResponse
+    {
+        Gate::authorize('viewAny', Conversation::class);
+
+        $agents = User::query()
+            ->whereNull('deleted_at')
+            ->orderBy('name')
+            ->get(['id', 'name', 'status', 'role_title'])
+            ->map(fn (User $u) => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'role_title' => $u->role_title,
+                'online' => $u->status === AgentStatus::Online,
+            ]);
+
+        $departments = Department::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json([
+            'agents' => $agents,
+            'departments' => $departments,
+            'current_user_id' => $request->user()->id,
         ]);
     }
 
@@ -113,6 +153,10 @@ class ConversationApiController extends Controller
                     ]),
                 ],
                 'assigned_agent' => $conversation->assignedAgent?->name,
+                'assigned_to' => $conversation->assigned_to,
+                'department_id' => $conversation->department_id,
+                'department' => $conversation->department?->name,
+                'care_window' => $this->careWindow->snapshot($conversation),
             ],
             'messages' => $page['messages'],
             'messages_meta' => [
@@ -122,6 +166,7 @@ class ConversationApiController extends Controller
             'internal_notes' => $this->features->isEnabled('internal_notes', true)
                 ? $this->noteService->listForConversation($conversation)->map(fn ($n) => $this->noteService->serialize($n))->values()->all()
                 : [],
+            'scheduled_messages' => $this->scheduledMessages->listForConversation($conversation),
             'features' => $this->features->all(),
         ]);
     }
@@ -160,6 +205,36 @@ class ConversationApiController extends Controller
         return response()->json($this->messageService->serializeMessage($message), 201);
     }
 
+    public function sendTemplate(SendTemplateMessageRequest $request, Conversation $conversation): JsonResponse
+    {
+        if ($conversation->status->isReadOnlyForAgents()) {
+            return response()->json([
+                'message' => 'Conversa somente leitura.',
+                'error' => ['code' => 'conversation_read_only', 'type' => 'domain'],
+            ], 403);
+        }
+
+        $data = $request->validated();
+
+        try {
+            $message = $this->messageService->sendTemplateFromAgent(
+                $conversation,
+                $request->user()->id,
+                $data['template_name'],
+                $data['language'] ?? 'pt_BR',
+                $data['body_parameters'] ?? [],
+                $data['components'] ?? [],
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'template_send_failed', 'type' => 'domain'],
+            ], 403);
+        }
+
+        return response()->json($this->messageService->serializeMessage($message), 201);
+    }
+
     public function close(Conversation $conversation, CloseConversationRequest $request): JsonResponse
     {
         $this->conversationService->close($conversation, $request->user()->id);
@@ -170,13 +245,23 @@ class ConversationApiController extends Controller
     public function assign(AssignConversationRequest $request, Conversation $conversation): JsonResponse
     {
         $data = $request->validated();
-        $conversation = $this->conversationService->assign(
-            $conversation,
-            $data['agent_id'] ?? $request->user()->id,
-            $request->user()->id,
-        );
+        try {
+            $conversation = $this->conversationService->assign(
+                $conversation,
+                $data['agent_id'] ?? $request->user()->id,
+                $request->user()->id,
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'conversation_assign_failed', 'type' => 'domain'],
+            ], 422);
+        }
 
-        return response()->json($conversation);
+        return response()->json([
+            'message' => 'Conversa atribuída.',
+            'conversation' => $this->conversationService->toInboxItem($conversation->loadMissing(['client', 'assignedAgent', 'tags', 'messages'])),
+        ]);
     }
 
     public function transfer(TransferConversationRequest $request, Conversation $conversation): JsonResponse
@@ -201,7 +286,7 @@ class ConversationApiController extends Controller
         return response()->json([
             'message' => 'Conversa transferida.',
             'transfer_id' => $transfer->id,
-            'conversation' => $conversation->fresh(['assignedAgent', 'department']),
+            'conversation' => $this->conversationService->inboxCard($conversation->id, $request->user()),
         ]);
     }
 
@@ -237,6 +322,50 @@ class ConversationApiController extends Controller
         Gate::authorize('delete', $note);
 
         $this->noteService->delete($note);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeScheduled(StoreScheduledMessageRequest $request, Conversation $conversation): JsonResponse
+    {
+        Gate::authorize('sendMessage', $conversation);
+
+        $data = $request->validated();
+
+        try {
+            $item = $this->scheduledMessages->scheduleForConversation(
+                $conversation,
+                $request->user()->id,
+                $data['content'],
+                $data['scheduled_at'],
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'schedule_failed', 'type' => 'domain'],
+            ], 422);
+        }
+
+        return response()->json(['scheduled' => $this->scheduledMessages->serialize($item)], 201);
+    }
+
+    public function cancelScheduled(ScheduledMessage $scheduled): JsonResponse
+    {
+        if ($scheduled->conversation_id) {
+            $conversation = Conversation::query()->findOrFail($scheduled->conversation_id);
+            Gate::authorize('sendMessage', $conversation);
+        } elseif (! $this->features->isEnabled('audit_log', true)) {
+            abort(403);
+        }
+
+        try {
+            $this->scheduledMessages->cancel($scheduled);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => ['code' => 'schedule_cancel_failed', 'type' => 'domain'],
+            ], 422);
+        }
 
         return response()->json(['ok' => true]);
     }

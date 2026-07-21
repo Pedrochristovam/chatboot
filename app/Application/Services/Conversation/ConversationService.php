@@ -22,7 +22,10 @@ class ConversationService
         private readonly AuditLogger $audit,
     ) {}
 
-    public function listForInbox(array $filters = [], ?User $viewer = null): \Illuminate\Database\Eloquent\Collection
+    /**
+     * @return array{items: \Illuminate\Database\Eloquent\Collection, meta: array{total: int, limit: int, offset: int, has_more: bool}}
+     */
+    public function listForInbox(array $filters = [], ?User $viewer = null): array
     {
         $query = Conversation::query()
             ->with(['client', 'assignedAgent', 'closedByAgent', 'tags', 'messages' => fn ($q) => $q->latest('id')->limit(1)])
@@ -75,7 +78,22 @@ class ConversationService
             $this->scopeForViewer($query, $viewer);
         }
 
-        return $query->limit(50)->get();
+        $limit = max(10, min(100, (int) ($filters['limit'] ?? 50)));
+        $offset = max(0, (int) ($filters['offset'] ?? 0));
+
+        $total = (clone $query)->count();
+
+        $items = $query->skip($offset)->limit($limit)->get();
+
+        return [
+            'items' => $items,
+            'meta' => [
+                'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => ($offset + $items->count()) < $total,
+            ],
+        ];
     }
 
     public function findWithDetails(int $id): ?Conversation
@@ -340,6 +358,8 @@ class ConversationService
             'closed_at' => $c->closed_at?->format('d/m/Y H:i'),
             'closed_by' => $c->closedByAgent?->name ?? $c->assignedAgent?->name,
             'assigned_agent' => $c->assignedAgent?->name,
+            'assigned_to' => $c->assigned_to,
+            'department_id' => $c->department_id,
             'client_id' => $c->client_id,
             'waiting_since' => $c->waiting_since?->toIso8601String(),
             'sla_due_at' => $c->sla_due_at?->toIso8601String(),

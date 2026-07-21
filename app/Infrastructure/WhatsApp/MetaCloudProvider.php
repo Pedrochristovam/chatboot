@@ -74,6 +74,32 @@ class MetaCloudProvider extends AbstractWhatsAppProvider
             }
             $payload['type'] = 'document';
             $payload['document'] = $doc;
+        } elseif ($type === 'template') {
+            $templateName = $message->metadata['template_name'] ?? null;
+            if (! filled($templateName)) {
+                return new SendResultDTO(success: false, error: 'Nome do template Meta é obrigatório.');
+            }
+
+            $language = $message->metadata['language'] ?? 'pt_BR';
+            $components = $message->metadata['components'] ?? [];
+            if ($components === [] && ! empty($message->metadata['body_parameters']) && is_array($message->metadata['body_parameters'])) {
+                $components = [[
+                    'type' => 'body',
+                    'parameters' => collect($message->metadata['body_parameters'])
+                        ->map(fn ($text) => ['type' => 'text', 'text' => (string) $text])
+                        ->values()
+                        ->all(),
+                ]];
+            }
+
+            $payload['type'] = 'template';
+            $payload['template'] = [
+                'name' => $templateName,
+                'language' => ['code' => $language],
+            ];
+            if ($components !== []) {
+                $payload['template']['components'] = $components;
+            }
         } else {
             $payload['type'] = 'text';
             $payload['text'] = ['body' => $message->content ?? ''];

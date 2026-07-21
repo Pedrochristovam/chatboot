@@ -35,6 +35,11 @@ abstract class AbstractWhatsAppProvider implements WhatsAppProviderInterface
         return $this->dispatch('location', $message);
     }
 
+    public function sendTemplate(OutgoingMessageDTO $message): SendResultDTO
+    {
+        return $this->dispatch('template', $message);
+    }
+
     /**
      * @return array{contents: string, mime_type?: string, file_name?: string}|null
      */

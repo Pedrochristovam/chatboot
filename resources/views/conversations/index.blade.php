@@ -10,9 +10,11 @@
                 <div class="mb-2.5 flex items-center justify-between">
                     <div>
                         <p class="font-display text-base font-semibold text-slate-900">Caixa de entrada</p>
-                        <p class="text-[11px] text-slate-500" x-text="conversations.length + ' conversa(s)'"></p>
+                        <p class="text-[11px] text-slate-500" x-text="(inboxMeta.total || conversations.length) + ' conversa(s)'"></p>
                     </div>
+                    <button type="button" x-show="networkError" @click="retryLoad()" class="rounded-lg px-2 py-1 text-[11px] font-bold text-[#8B1E3F] hover:bg-slate-50">Retry</button>
                 </div>
+                <div x-show="networkError" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800" x-text="networkError"></div>
                 <div class="relative">
                     <svg class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     <input type="text" placeholder="Buscar nome ou telefone..." x-model="search" @input.debounce.400ms="loadConversations()"
@@ -48,6 +50,11 @@
                         </div>
                     </button>
                 </template>
+                <div x-show="inboxMeta.has_more" class="border-t border-slate-100 p-3 text-center">
+                    <button type="button" @click="loadMoreInbox()" :disabled="loadingMoreInbox"
+                            class="text-[11px] font-bold text-[#8B1E3F] disabled:opacity-50"
+                            x-text="loadingMoreInbox ? 'Carregando...' : 'Carregar mais'"></button>
+                </div>
                 <div x-show="conversations.length === 0" class="flex flex-col items-center px-6 py-14 text-center">
                     <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xl">💬</div>
                     <p class="font-semibold text-slate-700">Nenhuma conversa</p>
@@ -58,18 +65,18 @@
 
         {{-- Chat --}}
         <div :class="mobileView !== 'chat' ? 'hidden lg:flex' : 'flex'" class="relative flex flex-1 flex-col bg-slate-50">
-            <div class="flex min-h-16 items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5">
-                <div class="flex items-center gap-3">
+            <div class="flex min-h-16 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5">
+                <div class="flex min-w-0 items-center gap-3">
                     <button type="button" @click="mobileView = 'list'" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 lg:hidden">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     </button>
                     <template x-if="selected">
-                        <div class="flex items-center gap-3">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-[#5C1529]" x-text="selected.initials"></div>
-                            <div>
-                                <p class="font-semibold text-slate-800" x-text="selected.name"></p>
-                                <p class="text-xs text-slate-400" x-text="selected.phone || selectedConversation?.client?.phone || ''"></p>
-                                <p x-show="selectedConversation?.is_bot" class="text-xs font-medium text-[#8B1E3F]" x-text="selectedConversation?.status_label"></p>
+                        <div class="flex min-w-0 items-center gap-3">
+                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-[#5C1529]" x-text="selected.initials"></div>
+                            <div class="min-w-0">
+                                <p class="truncate font-semibold text-slate-800" x-text="selected.name"></p>
+                                <p class="truncate text-xs text-slate-400" x-text="selected.phone || selectedConversation?.client?.phone || ''"></p>
+                                <p x-show="selectedConversation?.assigned_agent" class="truncate text-[11px] text-slate-500" x-text="'Atendente: ' + selectedConversation.assigned_agent"></p>
                             </div>
                         </div>
                     </template>
@@ -80,12 +87,22 @@
                         </div>
                     </template>
                 </div>
-                <div class="flex items-center gap-2" x-show="selected && !isReadOnly">
-                    <button type="button" @click="closeConversation()" class="rounded-lg border border-[#741832] bg-[#8B1E3F] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#741832]">Encerrar</button>
+                <div class="flex flex-wrap items-center justify-end gap-1.5" x-show="selected && !isReadOnly">
+                    <button type="button" x-show="!selectedConversation?.assigned_to || selectedConversation?.assigned_to !== currentUserId" @click="claimConversation()"
+                            class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Assumir</button>
+                    <button type="button" @click="openTransferModal()" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Transferir</button>
+                    <button type="button" @click="openScheduleModal()" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Agendar</button>
+                    <button type="button" @click="openTemplateModal()" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Template</button>
+                    <button type="button" @click="closeConversation()" class="rounded-lg border border-[#741832] bg-[#8B1E3F] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#741832]">Encerrar</button>
                     <button type="button" @click="mobileView = 'info'" class="rounded-lg p-2 text-slate-400 hover:bg-slate-50 xl:hidden">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     </button>
                 </div>
+            </div>
+
+            <div x-show="selected && selectedConversation?.care_window && !selectedConversation.care_window.open"
+                 class="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                Janela de 24h encerrada. Envie um <button type="button" class="font-bold underline" @click="openTemplateModal()">template Meta</button> para reabrir.
             </div>
 
             <div class="custom-scrollbar flex-1 space-y-2.5 overflow-y-auto bg-slate-50 p-4 sm:p-5" x-ref="messageList" @click="showEmojiPicker = false">
@@ -96,9 +113,7 @@
                 </div>
                 <div x-show="loading" class="py-10 text-center text-sm text-slate-400">Carregando mensagens...</div>
                 <div x-show="selected && hasMoreMessages && !loading" class="pb-1 text-center">
-                    <button type="button"
-                            @click="loadOlderMessages()"
-                            :disabled="loadingOlder"
+                    <button type="button" @click="loadOlderMessages()" :disabled="loadingOlder"
                             class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 hover:text-[#8B1E3F] disabled:opacity-50">
                         <span x-text="loadingOlder ? 'Carregando...' : 'Carregar mensagens anteriores'"></span>
                     </button>
@@ -113,14 +128,31 @@
                              class="max-w-[78%] overflow-hidden px-3 py-2.5 text-sm leading-relaxed">
                             <p x-show="msg.from === 'bot'" class="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-[#8B1E3F]">Bot</p>
 
-                            <template x-if="msg.image_url">
-                                <a :href="msg.image_url" target="_blank" rel="noopener" class="mb-2 block overflow-hidden rounded-xl">
-                                    <img :src="msg.image_url" alt="Imagem"
+                            <template x-if="msg.image_url || msg.kind === 'image'">
+                                <a :href="msg.image_url || msg.attachments?.[0]?.url" target="_blank" rel="noopener" class="mb-2 block overflow-hidden rounded-xl">
+                                    <img :src="msg.image_url || msg.attachments?.[0]?.url" alt="Imagem"
                                          class="max-h-64 w-full max-w-xs object-cover transition hover:opacity-95">
                                 </a>
                             </template>
 
-                            <template x-if="!msg.image_url && (msg.attachments || []).length">
+                            <template x-if="msg.audio_url || msg.kind === 'audio'">
+                                <audio controls class="mb-2 w-full max-w-xs" :src="msg.audio_url || msg.attachments?.[0]?.url"></audio>
+                            </template>
+
+                            <template x-if="msg.video_url || msg.kind === 'video'">
+                                <video controls class="mb-2 max-h-64 w-full max-w-xs rounded-xl" :src="msg.video_url || msg.attachments?.[0]?.url"></video>
+                            </template>
+
+                            <template x-if="(msg.document_url || msg.kind === 'document') && !msg.image_url">
+                                <a :href="msg.document_url || msg.attachments?.[0]?.url" target="_blank" rel="noopener"
+                                   class="mb-2 flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium underline-offset-2 hover:underline"
+                                   :class="msg.from === 'agent' ? 'bg-white/10 text-white' : 'bg-slate-50 text-[#8B1E3F]'">
+                                    <span>📎</span>
+                                    <span x-text="msg.document_name || msg.attachments?.[0]?.name || 'Documento'"></span>
+                                </a>
+                            </template>
+
+                            <template x-if="!msg.image_url && !msg.audio_url && !msg.video_url && !msg.document_url && msg.kind !== 'audio' && msg.kind !== 'video' && msg.kind !== 'document' && (msg.attachments || []).length">
                                 <a :href="msg.attachments[0].url" target="_blank" rel="noopener"
                                    class="mb-2 flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium underline-offset-2 hover:underline"
                                    :class="msg.from === 'agent' ? 'bg-white/10 text-white' : 'bg-slate-50 text-[#8B1E3F]'">
@@ -150,9 +182,7 @@
                 </div>
 
                 <div class="relative" x-show="!isReadOnly" @click.outside="showEmojiPicker = false">
-                    <div x-show="showEmojiPicker"
-                         x-cloak
-                         x-transition.opacity.duration.150ms
+                    <div x-show="showEmojiPicker" x-cloak x-transition.opacity.duration.150ms
                          class="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-slate-300 bg-white">
                         <div class="border-b border-slate-100 px-3 py-2">
                             <input type="text" x-model="emojiSearch" @input="refreshVisibleEmojis()"
@@ -176,7 +206,6 @@
                                             x-text="emoji"></button>
                                 </template>
                             </div>
-                            <p x-show="!visibleEmojis.length" class="py-6 text-center text-sm text-slate-400">Nenhum emoji nesta categoria.</p>
                         </div>
                     </div>
 
@@ -214,20 +243,23 @@
         </div>
 
         {{-- Painel cliente --}}
-        <div :class="mobileView !== 'info' ? 'hidden xl:flex' : 'flex'" class="w-full flex-col border-l border-slate-200 bg-white xl:w-72">
+        <div :class="mobileView !== 'info' ? 'hidden xl:flex' : 'flex'" class="w-full flex-col border-l border-slate-200 bg-white xl:w-80">
             <div class="custom-scrollbar flex-1 overflow-y-auto" x-show="selectedClient">
                 <div class="border-b border-slate-200 bg-white px-5 pb-5 pt-6 text-center">
                     <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-xl font-bold text-[#8B1E3F]" x-text="selected?.initials"></div>
                     <h3 class="font-display text-lg font-semibold text-slate-900" x-text="selectedClient?.name"></h3>
                     <p class="mt-1 text-sm text-slate-500" x-text="selectedClient?.phone"></p>
-                    <p class="mt-0.5 text-xs text-slate-400" x-text="selectedClient?.email || ''"></p>
-                    <div class="mt-3 flex flex-wrap justify-center gap-2">
-                        <template x-for="tag in (selectedClient?.tags || [])" :key="tag.name">
-                            <span class="rounded-full px-2.5 py-0.5 text-xs font-bold" :style="'background:' + tag.color + '22;color:' + tag.color" x-text="tag.name"></span>
-                        </template>
-                    </div>
+                    <button type="button" @click="mobileView = 'chat'" class="mt-3 text-xs font-semibold text-[#8B1E3F] xl:hidden">Voltar ao chat</button>
                 </div>
                 <div class="space-y-4 p-5">
+                    <div x-show="selectedConversation?.care_window">
+                        <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Janela 24h</h4>
+                        <div class="rounded-xl border px-4 py-3"
+                             :class="selectedConversation?.care_window?.open ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'">
+                            <p class="text-sm font-bold" x-text="selectedConversation?.care_window?.open ? 'Aberta' : 'Encerrada'"></p>
+                            <p class="mt-1 text-xs text-slate-500" x-text="selectedConversation?.care_window?.expires_at_label ? ('Expira em ' + selectedConversation.care_window.expires_at_label) : 'Sem mensagem recente do cliente'"></p>
+                        </div>
+                    </div>
                     <div x-show="selectedConversation?.sla_due_at">
                         <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">SLA de resposta</h4>
                         <div class="rounded-xl border px-4 py-3"
@@ -246,10 +278,105 @@
                         <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Notas do Cliente</h4>
                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700" x-text="selectedClient?.notes || 'Sem observações.'"></div>
                     </div>
+                    <div>
+                        <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Notas internas</h4>
+                        <div class="space-y-2">
+                            <template x-for="note in internalNotes" :key="note.id">
+                                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                    <p class="text-sm text-slate-700" x-text="note.body"></p>
+                                    <div class="mt-1 flex items-center justify-between gap-2">
+                                        <p class="text-[10px] text-slate-400" x-text="(note.author || '') + ' · ' + (note.created_at || '')"></p>
+                                        <button type="button" @click="removeNote(note)" class="text-[10px] font-semibold text-red-600">Excluir</button>
+                                    </div>
+                                </div>
+                            </template>
+                            <textarea x-model="noteDraft" rows="2" placeholder="Escrever nota interna..."
+                                      class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#8B1E3F]"></textarea>
+                            <button type="button" @click="addNote()" class="w-full rounded-lg bg-[#8B1E3F] px-3 py-2 text-xs font-bold text-white">Salvar nota</button>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Agendamentos</h4>
+                        <div class="space-y-2">
+                            <template x-for="item in scheduledMessages" :key="item.id">
+                                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                    <p class="text-sm text-slate-700" x-text="item.content"></p>
+                                    <p class="mt-1 text-[10px] text-slate-400" x-text="item.scheduled_at_label + ' · ' + item.status_label"></p>
+                                    <button type="button" x-show="item.can_cancel" @click="cancelSchedule(item)" class="mt-1 text-[10px] font-semibold text-red-600">Cancelar</button>
+                                </div>
+                            </template>
+                            <p x-show="!scheduledMessages.length" class="text-xs text-slate-400">Nenhum agendamento pendente.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div x-show="!selectedClient" class="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-400">
                 <p>Detalhes do cliente aparecem ao selecionar uma conversa.</p>
+            </div>
+        </div>
+
+        {{-- Modais --}}
+        <div x-show="showTransferModal" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4" @keydown.escape.window="showTransferModal = false">
+            <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl" @click.outside="showTransferModal = false">
+                <h3 class="text-lg font-bold text-slate-900">Transferir conversa</h3>
+                <div class="mt-4 space-y-3">
+                    <div>
+                        <label class="mb-1 block text-xs font-bold text-slate-500">Atendente</label>
+                        <select x-model="transferAgentId" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                            <option value="">—</option>
+                            <template x-for="agent in agents" :key="agent.id">
+                                <option :value="agent.id" x-text="agent.name + (agent.online ? ' (online)' : '')"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs font-bold text-slate-500">Departamento</label>
+                        <select x-model="transferDepartmentId" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                            <option value="">—</option>
+                            <template x-for="dep in departments" :key="dep.id">
+                                <option :value="dep.id" x-text="dep.name"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs font-bold text-slate-500">Motivo</label>
+                        <input type="text" x-model="transferReason" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Opcional">
+                    </div>
+                </div>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" @click="showTransferModal = false" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600">Cancelar</button>
+                    <button type="button" @click="submitTransfer()" class="rounded-lg bg-[#8B1E3F] px-4 py-2 text-sm font-bold text-white">Transferir</button>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="showScheduleModal" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4">
+            <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl" @click.outside="showScheduleModal = false">
+                <h3 class="text-lg font-bold text-slate-900">Agendar mensagem</h3>
+                <div class="mt-4 space-y-3">
+                    <textarea x-model="scheduleDraft" rows="4" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Texto da mensagem"></textarea>
+                    <input type="datetime-local" x-model="scheduleAt" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+                </div>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" @click="showScheduleModal = false" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600">Cancelar</button>
+                    <button type="button" @click="submitSchedule()" class="rounded-lg bg-[#8B1E3F] px-4 py-2 text-sm font-bold text-white">Agendar</button>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="showTemplateModal" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4">
+            <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl" @click.outside="showTemplateModal = false">
+                <h3 class="text-lg font-bold text-slate-900">Enviar template Meta</h3>
+                <p class="mt-1 text-xs text-slate-500">Use o nome exato do template aprovado no Business Manager.</p>
+                <div class="mt-4 space-y-3">
+                    <input type="text" x-model="templateName" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="nome_do_template">
+                    <input type="text" x-model="templateLanguage" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="pt_BR">
+                    <textarea x-model="templateParams" rows="3" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Parâmetros do body (um por linha)"></textarea>
+                </div>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" @click="showTemplateModal = false" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600">Cancelar</button>
+                    <button type="button" @click="submitTemplate()" class="rounded-lg bg-[#8B1E3F] px-4 py-2 text-sm font-bold text-white">Enviar</button>
+                </div>
             </div>
         </div>
     </div>

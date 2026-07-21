@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - main
       - '*.x'
   pull_request:
   schedule:
@@ -45,3 +46,15 @@ jobs:
 
       - name: Execute tests
         run: php artisan test
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install NPM dependencies
+        run: npm ci || npm install
+
+      - name: Build frontend assets
+        run: npm run build

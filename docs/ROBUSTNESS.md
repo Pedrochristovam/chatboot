@@ -25,7 +25,15 @@ REDIS_PORT=6379
 
 Instale o cliente PHP (`composer require predis/predis`) e um servidor Redis. Em desenvolvimento local, `database`/`file` continuam válidos.
 
-O scheduler registra seu heartbeat, despacha mensagens agendadas, detecta agentes sem heartbeat a cada minuto e remove recibos operacionais antigos. O frontend envia presença a cada **60 segundos** (com skip se o sinal ainda estiver fresco); logout explícito devolve as conversas imediatamente, enquanto quedas abruptas são detectadas após ~150s sem heartbeat.
+O scheduler registra seu heartbeat, despacha mensagens agendadas, detecta agentes sem heartbeat a cada minuto e remove recibos operacionais antigos. O frontend envia presença a cada **60 segundos** (com skip se o sinal ainda estiver fresco); **logout** e **fechamento da aba** (`pagehide` → `POST /api/internal/presence/offline`) devolvem conversas imediatamente; quedas sem `pagehide` ainda são detectadas após ~150s.
+
+### Docker (Redis + MySQL)
+
+```bash
+docker compose up -d
+```
+
+Sobe app, queue worker, scheduler, MySQL, Redis e phpMyAdmin (`http://localhost:8081`). Em produção, prefira Redis para session/queue/cache. O painel **Operações** mostra profundidade da fila, Redis, Reverb e audit log (alternativa leve ao Horizon quando o pacote não estiver instalado).
 
 ## Meta Cloud API
 

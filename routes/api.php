@@ -12,8 +12,8 @@ use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/webhook/whatsapp', [WebhookController::class, 'receive']);
-Route::get('/webhook/whatsapp', [WebhookController::class, 'verify']);
+Route::post('/webhook/whatsapp', [WebhookController::class, 'receive'])->middleware('throttle:120,1');
+Route::get('/webhook/whatsapp', [WebhookController::class, 'verify'])->middleware('throttle:60,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user());
@@ -28,14 +28,18 @@ Route::middleware(['web', 'auth', 'throttle:120,1'])->prefix('internal')->group(
         ->name('api.messages.retry');
     Route::apiResource('clients', ClientApiController::class)->names('api.clients');
     Route::get('conversations', [ConversationApiController::class, 'index']);
+    Route::get('conversations/lookup', [ConversationApiController::class, 'lookup']);
     Route::get('conversations/{conversation}', [ConversationApiController::class, 'show']);
     Route::get('conversations/{conversation}/card', [ConversationApiController::class, 'card']);
     Route::post('conversations/{conversation}/messages', [ConversationApiController::class, 'sendMessage']);
+    Route::post('conversations/{conversation}/templates', [ConversationApiController::class, 'sendTemplate']);
     Route::post('conversations/{conversation}/close', [ConversationApiController::class, 'close']);
     Route::post('conversations/{conversation}/assign', [ConversationApiController::class, 'assign']);
     Route::post('conversations/{conversation}/transfer', [ConversationApiController::class, 'transfer']);
     Route::get('conversations/{conversation}/notes', [ConversationApiController::class, 'notes']);
     Route::post('conversations/{conversation}/notes', [ConversationApiController::class, 'storeNote']);
+    Route::post('conversations/{conversation}/scheduled-messages', [ConversationApiController::class, 'storeScheduled']);
+    Route::delete('scheduled-messages/{scheduled}', [ConversationApiController::class, 'cancelScheduled']);
     Route::delete('conversation-notes/{note}', [ConversationApiController::class, 'destroyNote']);
     Route::post('bot/simulate', [ConversationApiController::class, 'simulateInbound']);
     Route::post('agents', [AgentApiController::class, 'store']);

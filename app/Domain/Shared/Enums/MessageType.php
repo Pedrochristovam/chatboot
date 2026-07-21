@@ -11,4 +11,5 @@ enum MessageType: string
     case Video = 'video';
     case Location = 'location';
     case Sticker = 'sticker';
+    case Template = 'template';
 }
